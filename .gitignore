@@ -1,0 +1,12 @@
+.env
+data/maps/*.osrm*
+data/maps/*/
+!data/maps/monaco.osm.pbf
+backend/app/ml/artifacts/*.joblib
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+*.log
+backend/app/ml/data/*.csv
+frontend/tsconfig.tsbuildinfo

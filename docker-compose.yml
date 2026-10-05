@@ -1,0 +1,68 @@
+# Option B: everything in containers.  docker compose up --build
+# OSRM needs pre-processed map data first: see data/maps/README.md (scripts/setup_osrm.ps1 / .sh).
+services:
+  postgres:            # PostgreSQL 16 with the PostGIS extension
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ems
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ems"]
+      interval: 5s
+      retries: 20
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+    volumes: ["./docker/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro"]
+
+  osrm:                # local OSRM; expects data/maps/<region>.osrm* produced by the setup script
+    image: osrm/osrm-backend:latest
+    command: osrm-routed --algorithm mld /data/${OSRM_DATASET:-monaco}.osrm
+    volumes: ["./data/maps:/data"]
+    ports: ["5000:5000"]
+    profiles: ["osrm"]
+
+  backend:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/ems
+      MQTT_HOST: mosquitto
+      OSRM_URL: ${DOCKER_OSRM_URL:-}
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      mosquitto: { condition: service_started }
+
+  simulator:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    command: python /app/simulator/run_simulator.py --target-routes 0.2
+    environment:
+      MQTT_HOST: mosquitto
+      BACKEND_URL: http://backend:8000
+    depends_on: [backend]
+
+  frontend:
+    build: { context: ./frontend }
+    environment:
+      VITE_BACKEND_URL: http://backend:8000
+    ports: ["5173:4173"]
+    depends_on: [backend]
+
+  prometheus:          # optional: docker compose --profile monitoring up
+    image: prom/prometheus:latest
+    volumes: ["./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["9090:9090"]
+    profiles: ["monitoring"]
+
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["3000:3000"]
+    profiles: ["monitoring"]
+
+volumes:
+  pgdata:

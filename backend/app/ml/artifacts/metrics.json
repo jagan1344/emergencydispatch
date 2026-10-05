@@ -1,0 +1,322 @@
+{
+  "disclaimer": "Synthetic, medically-inspired data for academic demonstration only. Not clinically validated.",
+  "dataset": {
+    "rows": 6000,
+    "seed": 42,
+    "class_counts": {
+      "MEDIUM": 1880,
+      "HIGH": 1629,
+      "LOW": 1400,
+      "CRITICAL": 1091
+    },
+    "train_rows": 4800,
+    "test_rows": 1200,
+    "split": "80/20 stratified"
+  },
+  "deployed_model": "random_forest",
+  "version": "rf-20261005151025",
+  "models": {
+    "logistic_regression": {
+      "accuracy": 0.93,
+      "precision_macro": 0.936,
+      "recall_macro": 0.9328,
+      "f1_macro": 0.9343,
+      "confusion_matrix": {
+        "labels": [
+          "LOW",
+          "MEDIUM",
+          "HIGH",
+          "CRITICAL"
+        ],
+        "matrix": [
+          [
+            252,
+            28,
+            0,
+            0
+          ],
+          [
+            16,
+            346,
+            14,
+            0
+          ],
+          [
+            1,
+            14,
+            306,
+            5
+          ],
+          [
+            0,
+            0,
+            6,
+            212
+          ]
+        ]
+      },
+      "per_class": {
+        "LOW": {
+          "precision": 0.9368029739776952,
+          "recall": 0.9,
+          "f1-score": 0.9180327868852459,
+          "support": 280.0
+        },
+        "MEDIUM": {
+          "precision": 0.8917525773195877,
+          "recall": 0.9202127659574468,
+          "f1-score": 0.9057591623036649,
+          "support": 376.0
+        },
+        "HIGH": {
+          "precision": 0.9386503067484663,
+          "recall": 0.9386503067484663,
+          "f1-score": 0.9386503067484663,
+          "support": 326.0
+        },
+        "CRITICAL": {
+          "precision": 0.9769585253456221,
+          "recall": 0.9724770642201835,
+          "f1-score": 0.9747126436781609,
+          "support": 218.0
+        },
+        "accuracy": 0.93,
+        "macro avg": {
+          "precision": 0.9360410958478429,
+          "recall": 0.9328350342315241,
+          "f1-score": 0.9342887249038845,
+          "support": 1200.0
+        },
+        "weighted avg": {
+          "precision": 0.9304839669260544,
+          "recall": 0.93,
+          "f1-score": 0.930084984729905,
+          "support": 1200.0
+        }
+      },
+      "train_seconds": 0.08
+    },
+    "random_forest": {
+      "accuracy": 0.955,
+      "precision_macro": 0.96,
+      "recall_macro": 0.9551,
+      "f1_macro": 0.9573,
+      "confusion_matrix": {
+        "labels": [
+          "LOW",
+          "MEDIUM",
+          "HIGH",
+          "CRITICAL"
+        ],
+        "matrix": [
+          [
+            260,
+            20,
+            0,
+            0
+          ],
+          [
+            6,
+            363,
+            7,
+            0
+          ],
+          [
+            0,
+            11,
+            311,
+            4
+          ],
+          [
+            0,
+            0,
+            6,
+            212
+          ]
+        ]
+      },
+      "per_class": {
+        "LOW": {
+          "precision": 0.9774436090225563,
+          "recall": 0.9285714285714286,
+          "f1-score": 0.9523809523809523,
+          "support": 280.0
+        },
+        "MEDIUM": {
+          "precision": 0.9213197969543148,
+          "recall": 0.9654255319148937,
+          "f1-score": 0.9428571428571428,
+          "support": 376.0
+        },
+        "HIGH": {
+          "precision": 0.9598765432098766,
+          "recall": 0.9539877300613497,
+          "f1-score": 0.9569230769230769,
+          "support": 326.0
+        },
+        "CRITICAL": {
+          "precision": 0.9814814814814815,
+          "recall": 0.9724770642201835,
+          "f1-score": 0.9769585253456221,
+          "support": 218.0
+        },
+        "accuracy": 0.955,
+        "macro avg": {
+          "precision": 0.9600303576670572,
+          "recall": 0.9551154386919638,
+          "f1-score": 0.9572799243766985,
+          "support": 1200.0
+        },
+        "weighted avg": {
+          "precision": 0.955819308525434,
+          "recall": 0.955,
+          "f1-score": 0.9550956949860177,
+          "support": 1200.0
+        }
+      },
+      "train_seconds": 0.51
+    },
+    "gradient_boosting": {
+      "accuracy": 0.9592,
+      "precision_macro": 0.9631,
+      "recall_macro": 0.9595,
+      "f1_macro": 0.9611,
+      "confusion_matrix": {
+        "labels": [
+          "LOW",
+          "MEDIUM",
+          "HIGH",
+          "CRITICAL"
+        ],
+        "matrix": [
+          [
+            264,
+            16,
+            0,
+            0
+          ],
+          [
+            6,
+            363,
+            7,
+            0
+          ],
+          [
+            0,
+            10,
+            312,
+            4
+          ],
+          [
+            0,
+            0,
+            6,
+            212
+          ]
+        ]
+      },
+      "per_class": {
+        "LOW": {
+          "precision": 0.9777777777777777,
+          "recall": 0.9428571428571428,
+          "f1-score": 0.96,
+          "support": 280.0
+        },
+        "MEDIUM": {
+          "precision": 0.9331619537275064,
+          "recall": 0.9654255319148937,
+          "f1-score": 0.9490196078431372,
+          "support": 376.0
+        },
+        "HIGH": {
+          "precision": 0.96,
+          "recall": 0.9570552147239264,
+          "f1-score": 0.9585253456221198,
+          "support": 326.0
+        },
+        "CRITICAL": {
+          "precision": 0.9814814814814815,
+          "recall": 0.9724770642201835,
+          "f1-score": 0.9769585253456221,
+          "support": 218.0
+        },
+        "accuracy": 0.9591666666666666,
+        "macro avg": {
+          "precision": 0.9631053032466914,
+          "recall": 0.9594537384290366,
+          "f1-score": 0.9611258697027198,
+          "support": 1200.0
+        },
+        "weighted avg": {
+          "precision": 0.9596413627852359,
+          "recall": 0.9591666666666666,
+          "f1-score": 0.9592396614559802,
+          "support": 1200.0
+        }
+      },
+      "train_seconds": 1.43
+    }
+  },
+  "feature_importances": [
+    {
+      "feature": "oxygen_saturation",
+      "importance": 0.3509
+    },
+    {
+      "feature": "heart_rate",
+      "importance": 0.3117
+    },
+    {
+      "feature": "respiratory_rate",
+      "importance": 0.1652
+    },
+    {
+      "feature": "consciousness",
+      "importance": 0.0596
+    },
+    {
+      "feature": "breathing_difficulty",
+      "importance": 0.0215
+    },
+    {
+      "feature": "age",
+      "importance": 0.0209
+    },
+    {
+      "feature": "chest_pain",
+      "importance": 0.0153
+    },
+    {
+      "feature": "injury_severity",
+      "importance": 0.0133
+    },
+    {
+      "feature": "bleeding",
+      "importance": 0.011
+    },
+    {
+      "feature": "emergency_type_other",
+      "importance": 0.0078
+    },
+    {
+      "feature": "emergency_type_stroke",
+      "importance": 0.0033
+    },
+    {
+      "feature": "accident_type_NONE",
+      "importance": 0.0031
+    },
+    {
+      "feature": "emergency_type_cardiac",
+      "importance": 0.0031
+    },
+    {
+      "feature": "emergency_type_respiratory",
+      "importance": 0.0019
+    },
+    {
+      "feature": "emergency_type_accident",
+      "importance": 0.0018
+    }
+  ]
+}

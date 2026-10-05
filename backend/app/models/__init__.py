@@ -1,0 +1,18 @@
+from app.models.entities import (  # noqa: F401
+    Ambulance,
+    AmbulanceLocation,
+    Dispatch,
+    EmergencyIncident,
+    Hospital,
+    IotMessage,
+    ModelPrediction,
+    RoadCondition,
+    RoadEdge,
+    RoadNode,
+    Route,
+    RouteSegment,
+    ServiceArea,
+    SystemEvent,
+    TrafficEvent,
+    User,
+)

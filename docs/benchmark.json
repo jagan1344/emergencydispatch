@@ -1,0 +1,47 @@
+{
+  "graph": {
+    "source": "osm",
+    "nodes": 11250,
+    "edges": 19562,
+    "roads": 1108,
+    "blocked_roads": 0,
+    "levels": {
+      "FREE": 885,
+      "MODERATE": 95,
+      "SEVERE": 9,
+      "LIGHT": 98,
+      "HEAVY": 21
+    },
+    "version": 1108
+  },
+  "dijkstra_graph_only": {
+    "n": 100,
+    "median_ms": 1.35,
+    "p95_ms": 1.83
+  },
+  "route_graph_plus_osrm": {
+    "n": 100,
+    "median_ms": 5.15,
+    "p95_ms": 10.69
+  },
+  "ml_predict": {
+    "n": 200,
+    "median_ms": 9.82,
+    "p95_ms": 10.16
+  },
+  "score_100_candidates": {
+    "n": 200,
+    "median_ms": 0.17,
+    "p95_ms": 0.19
+  },
+  "telemetry_flush_100_fixes": {
+    "n": 20,
+    "median_ms": 5.97,
+    "p95_ms": 11.4
+  },
+  "machine": {
+    "python": "3.11.15",
+    "cpu_count": 4,
+    "platform": "Linux-6.18.44-fc-v70-x86_64-with-glibc2.39"
+  }
+}

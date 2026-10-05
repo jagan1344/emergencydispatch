@@ -1,0 +1,107 @@
+{
+  "run": {
+    "seed": 42,
+    "ambulances": 10,
+    "hospitals": 5,
+    "incidents": 20,
+    "scheduled_traffic_events": 30,
+    "duration_s": 120,
+    "traffic_simulator": "run_simulator.py --target-routes 0.3",
+    "network": "Monaco OSM + local OSRM",
+    "sim_time_scale": 4
+  },
+  "status": "COMPLETED",
+  "counters": {
+    "incidents": 20,
+    "traffic_events": 35,
+    "planned_incidents": 20,
+    "planned_traffic": 30
+  },
+  "incident_status": {
+    "COMPLETED": 20
+  },
+  "severity": {
+    "MEDIUM": 8,
+    "HIGH": 8,
+    "LOW": 1,
+    "CRITICAL": 3
+  },
+  "summary": {
+    "avg_response_time_s": 1020.9,
+    "response_samples": 20,
+    "avg_dispatch_time_s": 389.9,
+    "avg_decision_ms": 59.7,
+    "reroutes": 6,
+    "reroute_time_saved_s": 305.0,
+    "avg_route_efficiency": 0.961,
+    "routes_measured": 46,
+    "completed_live": 20
+  },
+  "dispatch_methods": [
+    {
+      "key": "ORTOOLS_ASSIGNMENT",
+      "count": 9
+    },
+    {
+      "key": "WEIGHTED_SCORE",
+      "count": 11
+    }
+  ],
+  "reroutes": [
+    {
+      "reference": "INC-00040",
+      "ambulance_id": "AMB-010",
+      "leg": "TO_PATIENT",
+      "reroute_reason": "road blocked ahead (W151945347)",
+      "old_eta_s": null,
+      "new_eta_s": 1079.7163206362607,
+      "time_saved_s": null
+    },
+    {
+      "reference": "INC-00031",
+      "ambulance_id": "AMB-009",
+      "leg": "TO_PATIENT",
+      "reroute_reason": "accident on current route (W344962503)",
+      "old_eta_s": 1177.532726047231,
+      "new_eta_s": 968.776447079722,
+      "time_saved_s": 208.75627896750916
+    },
+    {
+      "reference": "INC-00027",
+      "ambulance_id": "AMB-002",
+      "leg": "TO_PATIENT",
+      "reroute_reason": "road blocked ahead (W158007905)",
+      "old_eta_s": null,
+      "new_eta_s": 804.9263533274327,
+      "time_saved_s": null
+    },
+    {
+      "reference": "INC-00026",
+      "ambulance_id": "AMB-007",
+      "leg": "TO_PATIENT",
+      "reroute_reason": "road blocked ahead (W158007905)",
+      "old_eta_s": null,
+      "new_eta_s": 811.23043157629,
+      "time_saved_s": null
+    },
+    {
+      "reference": "INC-00028",
+      "ambulance_id": "AMB-004",
+      "leg": "TO_PATIENT",
+      "reroute_reason": "ETA increased by 36% (> 20%)",
+      "old_eta_s": 447.0024871490662,
+      "new_eta_s": 350.7832766495743,
+      "time_saved_s": 96.21921049949191
+    },
+    {
+      "reference": "INC-00026",
+      "ambulance_id": "AMB-007",
+      "leg": "TO_PATIENT",
+      "reroute_reason": "road blocked ahead (W95449778)",
+      "old_eta_s": null,
+      "new_eta_s": 581.0469521750367,
+      "time_saved_s": null
+    }
+  ],
+  "note": "Database was re-seeded before this run, so the summary covers exactly these 20 simulation incidents. Times are simulated seconds (wall x 4). Response times include queueing: 20 incidents arrived within 2 minutes for 10 ambulances, so later incidents waited for a unit to become free."
+}
