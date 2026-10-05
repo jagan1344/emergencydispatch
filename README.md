@@ -90,7 +90,7 @@ WebSocket broadcast and MQTT publications run only after the commit succeeds
 
 Project layout:
 ```
-emergency-dispatch/
+emergencydispatch/
 ├─ backend/app/
 │  ├─ main.py  config.py  database.py  migrate.py  seed.py
 │  ├─ api/          auth, emergencies, fleet, routes, traffic, analytics, ml, simulation, health
@@ -276,6 +276,13 @@ All implemented in code (file in brackets) and unit-tested.
   accident/trauma/fire, cardiac, stroke); full hospitals are ranked last.
 
 ## 13. Installation (Windows PowerShell)
+Get the code (into `D:\emergencydispatch`):
+```powershell
+cd D:\
+git clone https://github.com/jagan1344/emergencydispatch.git
+cd D:\emergencydispatch
+```
+
 Prerequisites (all free): **Python 3.11+**, **Node.js 20+**, **PostgreSQL 16 with PostGIS**,
 **Mosquitto**, and **Docker Desktop** (only for OSRM / Option B).
 
@@ -291,7 +298,7 @@ winget install PostgreSQL.PostgreSQL.16
 winget install EclipseFoundation.Mosquitto
 Start-Service mosquitto
 
-# 3) Project (from the emergency-dispatch folder)
+# 3) Project (from the project folder, e.g. D:\emergencydispatch)
 Copy-Item .env.example .env          # edit DATABASE_URL password, JWT_SECRET, CITY_* if needed
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1

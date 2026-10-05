@@ -1,4 +1,4 @@
-# One-time local setup on Windows (PowerShell). Run from the emergency-dispatch folder:
+# One-time local setup on Windows (PowerShell). Run from the project folder (e.g. D:\emergencydispatch):
 #   Set-ExecutionPolicy -Scope Process Bypass; .\scripts\setup_windows.ps1
 $ErrorActionPreference = "Stop"
 if (-not (Test-Path .env)) { Copy-Item .env.example .env; Write-Host "Created .env from .env.example - review it." }
