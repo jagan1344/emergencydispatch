@@ -20,6 +20,7 @@ from sqlalchemy.engine import Engine
 from app.routing.traffic import CONGESTION_FACTORS
 
 MIN_WEIGHT = 1e-3
+CLOSURE_SPEED_MPS = 5 / 3.6
 
 
 class GraphNotLoaded(RuntimeError):
@@ -130,7 +131,8 @@ class RoadGraph:
         if kind == "free":
             return self.e_len / speed
         eff = speed * self.road_factor[self.e_road] * self.road_multiplier[self.e_road]
-        eff = np.where(self.road_blocked[self.e_road], 0.0, eff)
+        # 'time_closed': closures are passable at walking pace (last-resort access, e.g. police-escorted)
+        eff = np.where(self.road_blocked[self.e_road], CLOSURE_SPEED_MPS if kind == "time_closed" else 0.0, eff)
         with np.errstate(divide="ignore"):
             return np.where(eff > 0, self.e_len / np.maximum(eff, 1e-9), np.inf)
 

@@ -10,3 +10,7 @@ frontend/playwright-report/
 *.log
 backend/app/ml/data/*.csv
 frontend/tsconfig.tsbuildinfo
+data/maps/*.osm
+data/maps/*.part
+__pycache__/
+.pytest_cache/

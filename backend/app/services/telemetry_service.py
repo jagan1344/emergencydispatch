@@ -47,7 +47,8 @@ class TelemetryBuffer:
         leg = None
         route_id = p.get("route_id")
         if ar and route_id == str(ar.route_id):
-            ar.progress_m = float(p.get("progress_m", ar.progress_m))
+            if p.get("progress_m") is not None:
+                ar.progress_m = float(p["progress_m"])
             eta = remaining_eta(ar)
             leg = ar.leg
         row = {"id": ambulance_id, "lat": lat, "lon": lon, "spd": speed, "ts": recorded,

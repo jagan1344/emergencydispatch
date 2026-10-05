@@ -12,7 +12,8 @@ router = APIRouter(prefix="/api/ml", tags=["ml"])
 
 @router.get("/model")
 def model_info(_: User = Depends(any_user)):
-    return {"available": STATE.model.available, "version": STATE.model.version, "error": STATE.model.error,
+    return {"available": STATE.model.available, "version": STATE.model.version, "dataset": STATE.model.dataset,
+            "error": STATE.model.error,
             "metrics": STATE.model.metrics()}
 
 

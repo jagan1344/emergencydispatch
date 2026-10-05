@@ -41,9 +41,10 @@ def test_route_selection_prefers_fastest_and_reacts_to_traffic():
     assert r2.shortest_distance_m == pytest.approx(1100, abs=1)          # shortest possible ignores traffic
     g.set_road_state("R1", "FREE", 1.0, False)
     g.set_road_state("R2", "BLOCKED", 1.0, True)
-    g.set_road_state("R1", "BLOCKED", 1.0, True)
+    r3 = eng.route((0.0, 0.0), (0.0, 0.010))
+    assert "R2" not in r3.road_ids() and r3.engine == "graph"
     with pytest.raises(NoRouteError):
-        eng.route((0.0, 0.0), (0.0, 0.010))
+        eng.route((0.0, 0.0), (5.0, 5.0))            # > 1.5 km from any road
 
 
 def test_remaining_eta_and_recost():
@@ -75,3 +76,14 @@ def test_ortools_assignment_serves_high_priority_first():
     assert res == {"i1": "b", "i2": "a"}
     # unsuitable pairs excluded when a suitable unit exists
     assert optimal_assignment({"i": 50}, {"i": {"basic": (0.0, False), "icu": (0.9, True)}}) == {"i": "icu"}
+
+
+def test_closure_fallback_instead_of_stranding_patient():
+    """Destination on a dead end whose only access road is closed: route through the closure at 5 km/h."""
+    g = diamond()
+    eng = RoutingEngine(g)
+    g.set_road_state("R1", "BLOCKED", 1.0, True)
+    g.set_road_state("R2", "BLOCKED", 1.0, True)
+    r = eng.route((0.0, 0.0), (0.0, 0.010))
+    assert r.engine == "graph-closure" and r.through_closure and r.feasible
+    assert r.adjusted_duration_s > 400            # 600 m of closed road at 5 km/h = 432 s

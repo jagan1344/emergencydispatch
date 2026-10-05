@@ -7,7 +7,7 @@ import { fmtMin } from "../services/format";
 const NAV = [
   ["/", "Dashboard"], ["/map", "Live Map"], ["/emergencies/new", "New Emergency"], ["/emergencies", "Incidents"],
   ["/ambulances", "Ambulances"], ["/hospitals", "Hospitals"], ["/traffic", "Traffic Control"],
-  ["/analytics", "Analytics"], ["/simulation", "Simulation"],
+  ["/analytics", "Analytics"], ["/simulation", "Simulation"], ["/crew", "Crew GPS"],
 ];
 
 function Dot({ ok, label, title }: { ok: boolean; label: string; title?: string }) {
@@ -42,7 +42,7 @@ export default function Layout() {
           <Dot ok={!!health?.mqtt.connected} label="MQTT" />
           <Dot ok={!!health?.simulator.ambulance_sim_connected} label="Ambulance sim" />
           <Dot ok={!!health?.simulator.traffic_sim_connected} label="Traffic sim" />
-          <Dot ok={!!health?.ml_model.available} label="ML model" title={health?.ml_model.version || health?.ml_model.error || ""} />
+          <Dot ok={!!health?.ml_model.available} label={`ML: ${health?.ml_model.dataset || "?"} data`} title={health?.ml_model.version || health?.ml_model.error || ""} />
           <Dot ok={health?.routing.mode === "osm+osrm" || health?.routing.mode === "osm-graph"}
             label={`Routing: ${health?.routing.mode || "?"}`}
             title={health?.routing.mode === "synthetic-fallback" ? "Synthetic demo network - install an OSM extract for real roads" : ""} />

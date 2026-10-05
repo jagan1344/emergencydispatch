@@ -3,11 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.api.deps import admin, any_user
+from app.api.deps import admin, any_user, dispatcher
 from app.database import get_db
 from app.models import Ambulance, Hospital, User
 from app.models.entities import point_wkt
-from app.schemas.schemas import AmbulanceCreate, AmbulanceUpdate, HospitalCreate, HospitalUpdate
+from app.schemas.schemas import AmbulanceCreate, AmbulanceUpdate, DeviceFix, HospitalCreate, HospitalUpdate
 from app.services.events import emit
 from app.services.mission_service import hospital_dict, set_amb_status
 from app.services.state import STATE
@@ -27,7 +27,8 @@ def ambulance_dict(a: Ambulance) -> dict:
             "destination": a.destination, "destination_lat": a.destination_lat, "destination_lon": a.destination_lon,
             "missions_today": a.missions_today, "last_updated": live.get("timestamp", a.last_updated),
             "eta_remaining_s": live.get("eta_remaining_s") if a.status not in ("AVAILABLE", "OFFLINE", "MAINTENANCE") else None,
-            "base_latitude": a.base_latitude, "base_longitude": a.base_longitude}
+            "base_latitude": a.base_latitude, "base_longitude": a.base_longitude,
+            "gps_source": a.gps_source, "gps_accuracy_m": a.gps_accuracy_m}
 
 
 @router.get("/ambulances", tags=["fleet"])
@@ -84,6 +85,33 @@ def update_ambulance(ambulance_id: str, body: AmbulanceUpdate, _: User = Depends
                 setattr(a, f, v)
         db.commit()
     return ambulance_dict(a)
+
+
+@router.post("/ambulances/{ambulance_id}/gps")
+def device_gps(ambulance_id: str, body: DeviceFix, _: User = Depends(dispatcher)):
+    """Real GPS fix from the crew device (phone). Switches the unit to DEVICE mode (simulator stops moving it)."""
+    from app.services.device_gps import handle_fix
+    try:
+        return handle_fix(ambulance_id, body.latitude, body.longitude, body.speed_kph, body.accuracy_m)
+    except KeyError:
+        raise HTTPException(404, "ambulance not found")
+
+
+@router.post("/ambulances/{ambulance_id}/arrived")
+def device_arrived(ambulance_id: str, _: User = Depends(dispatcher)):
+    """Crew confirms arrival at the current destination (scene or hospital)."""
+    from app.services.device_gps import confirm_arrival
+    if not confirm_arrival(ambulance_id):
+        raise HTTPException(409, "ambulance has no active route")
+    return {"ok": True}
+
+
+@router.post("/ambulances/{ambulance_id}/gps/release")
+def device_release(ambulance_id: str, _: User = Depends(dispatcher)):
+    """Return the unit to the simulator (gps_source = SIMULATED)."""
+    from app.services.device_gps import release
+    release(ambulance_id)
+    return {"ok": True}
 
 
 @router.get("/hospitals")

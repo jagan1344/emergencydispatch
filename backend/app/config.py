@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     city_radius_m: float = 6000
     osm_pbf_path: str = str(PROJECT_DIR / "data" / "maps" / "bengaluru.osm.pbf")
 
+    # optional CSV with verified hospital capabilities (applied by the seed; see app/hospital_data.py)
+    hospitals_csv: str = ""
+
     sim_time_scale: float = 4.0
     scene_time_s: float = 120.0
     handover_time_s: float = 90.0

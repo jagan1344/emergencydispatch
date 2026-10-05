@@ -6,6 +6,7 @@ import Analytics from "./pages/Analytics";
 import Dashboard from "./pages/Dashboard";
 import EmergencyDetails from "./pages/EmergencyDetails";
 import Hospitals from "./pages/Hospitals";
+import Crew from "./pages/Crew";
 import Incidents from "./pages/Incidents";
 import LiveMap from "./pages/LiveMap";
 import Login from "./pages/Login";
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="/traffic" element={<Traffic />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/simulation" element={<Simulation />} />
+          <Route path="/crew" element={<Crew />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

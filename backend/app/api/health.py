@@ -26,7 +26,8 @@ def health():
         "routing": {"graph": STATE.graph.stats() if STATE.graph else None, "error": STATE.graph_error, "osrm": osrm,
                     "mode": ("osm+osrm" if osrm.get("reachable") else "osm-graph") if STATE.graph and STATE.graph.source == "osm"
                     else "synthetic-fallback" if STATE.graph else "unavailable"},
-        "ml_model": {"available": STATE.model.available, "version": STATE.model.version, "error": STATE.model.error},
+        "ml_model": {"available": STATE.model.available, "version": STATE.model.version, "dataset": STATE.model.dataset,
+                     "error": STATE.model.error},
         "mqtt": mqtt,
         "simulator": {"ambulance_sim_connected": STATE.simulator_last_seen is not None and now - STATE.simulator_last_seen < 10,
                       "traffic_sim_connected": STATE.traffic_sim_last_seen is not None and now - STATE.traffic_sim_last_seen < 15},

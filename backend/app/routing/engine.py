@@ -64,6 +64,7 @@ class RouteResult:
     origin_snap_m: float = 0.0
     dest_snap_m: float = 0.0
     alternatives: list[dict] = field(default_factory=list)
+    through_closure: list[str] = field(default_factory=list)   # closed roads used as last resort
 
     @property
     def coords(self) -> list[tuple[float, float]]:
@@ -90,7 +91,7 @@ class RouteResult:
                 "base_duration_s": round(float(self.base_duration_s), 1),
                 "adjusted_duration_s": round(float(self.adjusted_duration_s), 1) if self.feasible else None,
                 "osrm_duration_s": round(self.osrm_duration_s, 1) if self.osrm_duration_s else None,
-                "feasible": self.feasible}
+                "feasible": self.feasible, "through_closure": self.through_closure}
 
 
 def _totals(segments: list[Segment]) -> tuple[float, float, float]:
@@ -141,6 +142,19 @@ class RoutingEngine:
         if not path:
             return None
         return [self._edge_segment(e) for e in self.graph.path_edges(path)]
+
+    def _closure_candidate(self, o_idx: int, d_idx: int) -> list[Segment] | None:
+        from app.routing.graph import CLOSURE_SPEED_MPS
+        path, _ = self.graph.shortest_path(o_idx, d_idx, "time_closed")
+        if not path:
+            return None
+        segs = []
+        for e in self.graph.path_edges(path):
+            sg = self._edge_segment(e)
+            if sg.adj_speed_kph <= 0:
+                sg.adj_speed_kph = CLOSURE_SPEED_MPS * 3.6
+            segs.append(sg)
+        return segs
 
     def _osrm_candidates(self, origin, dest) -> list[tuple[list[Segment], float]]:
         if not self.osrm or not self.osrm.enabled:
@@ -225,11 +239,20 @@ class RoutingEngine:
                 dist, base, adj = _totals(segs)
                 results.append(RouteResult(engine, g.source, segs, dist, base, adj, osrm_dur,
                                            origin_snap_m=o_snap, dest_snap_m=d_snap))
-            if not results:
-                raise NoRouteError("destination unreachable on the current road network")
             feasible = [r for r in results if r.feasible]
             if not feasible:
-                raise NoRouteError("all candidate routes are blocked")
+                # every open route is cut by closures: pass the closure at walking pace instead of stranding
+                # the patient, and report it so the dispatcher can arrange access
+                closed = self._closure_candidate(o_idx, d_idx)
+                if closed is None:
+                    raise NoRouteError("destination unreachable on the current road network")
+                segs = head + closed + tail
+                dist, base, adj = _totals(segs)
+                rr = RouteResult("graph-closure", g.source, segs, dist, base, adj, None,
+                                 origin_snap_m=o_snap, dest_snap_m=d_snap)
+                rr.through_closure = sorted({s.road_id for s in closed if s.road_id and g.road_state(s.road_id).blocked})
+                results.append(rr)
+                feasible = [rr]
             best = min(feasible, key=lambda r: (r.adjusted_duration_s, r.distance_m))
             best.alternatives = [dict(r.summary(), selected=r is best) for r in results]
             if compute_shortest:

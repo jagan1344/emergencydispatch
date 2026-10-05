@@ -100,8 +100,17 @@ def spread_nodes(g: RoadGraph, k: int, rng: random.Random, center: tuple[float, 
     return picks
 
 
+def resolve_pbf() -> Path:
+    s = get_settings()
+    pbf = Path(s.osm_pbf_path)
+    if not pbf.is_absolute():
+        pbf = (Path(__file__).resolve().parent.parent / pbf).resolve()
+    return pbf
+
+
 def seed(reset: bool = False, seed_value: int = 42, n_ambulances: int = 20, n_hospitals: int = 5,
-         n_historical: int = 50, force_synthetic: bool = False) -> dict:
+         n_historical: int = 50, force_synthetic: bool = False, hospitals_source: str = "auto",
+         max_osm_hospitals: int = 25) -> dict:
     s = get_settings()
     rng = random.Random(seed_value)
     run_migrations()
@@ -124,16 +133,40 @@ def seed(reset: bool = False, seed_value: int = 42, n_ambulances: int = 20, n_ho
         if db.scalar(text("SELECT count(*) FROM hospitals")):
             out["status"] = "fleet already seeded (use --reset to recreate)"
             return out
-        h_nodes = spread_nodes(g, n_hospitals, rng, center, s.city_radius_m)
         hospitals = []
-        for i, node in enumerate(h_nodes):
+        osm_rows = []
+        pbf = resolve_pbf()
+        if hospitals_source in ("auto", "osm") and g.source == "osm" and pbf.exists():
+            from app.hospital_data import osm_to_rows, read_osm_hospitals
+            osm_rows = osm_to_rows(read_osm_hospitals(str(pbf), s.city_lat, s.city_lon, s.city_radius_m), max_osm_hospitals)
+            if hospitals_source == "osm" and not osm_rows:
+                raise SystemExit("no amenity=hospital found in the OSM extract")
+        if osm_rows:
+            for r in osm_rows:
+                h = Hospital(**r, location=point_wkt(r["latitude"], r["longitude"]), current_load=0)
+                db.add(h)
+                hospitals.append(h)
+            h_nodes = [g.nearest_node(r["latitude"], r["longitude"])[0] for r in osm_rows]
+            out["hospital_source"] = f"OpenStreetMap ({len(osm_rows)} real hospitals)"
+        else:
+            h_nodes = spread_nodes(g, n_hospitals, rng, center, s.city_radius_m)
+            out["hospital_source"] = "synthetic templates"
+        for i, node in enumerate([] if osm_rows else h_nodes):
             name, cap, icu, trauma, cardiac, stroke = HOSPITAL_TEMPLATES[i % len(HOSPITAL_TEMPLATES)]
             lat, lon = float(g.lat[node]), float(g.lon[node])
             h = Hospital(id=f"HSP-{i + 1:03d}", name=name, latitude=lat, longitude=lon, location=point_wkt(lat, lon),
                          emergency_capacity=cap, icu_available=icu, trauma_available=trauma, cardiac_available=cardiac,
-                         stroke_available=stroke, current_load=rng.randint(0, cap // 2), status="ACTIVE")
+                         stroke_available=stroke, current_load=rng.randint(0, cap // 2), status="ACTIVE",
+                         data_source="SYNTHETIC")
             db.add(h)
             hospitals.append(h)
+        csv_path = Path(s.hospitals_csv) if s.hospitals_csv else None
+        if csv_path is not None and not csv_path.is_absolute():
+            csv_path = (Path(__file__).resolve().parent.parent / csv_path).resolve()
+        if csv_path is not None and csv_path.exists():
+            from app.hospital_data import import_csv
+            db.flush()
+            out["hospital_csv"] = {"path": str(csv_path), **import_csv(db, csv_path)}
         a_nodes = spread_nodes(g, n_ambulances, rng, center, s.city_radius_m, exclude=list(h_nodes))
         ambulances = []
         for i, node in enumerate(a_nodes):
@@ -231,11 +264,14 @@ if __name__ == "__main__":
     ap.add_argument("--ambulances", type=int, default=20)
     ap.add_argument("--hospitals", type=int, default=5)
     ap.add_argument("--historical", type=int, default=50)
+    ap.add_argument("--hospitals-source", choices=["auto", "osm", "synthetic"], default="auto",
+                    help="auto = real OSM hospitals when an OSM extract is installed")
     a = ap.parse_args()
     if a.reset_network:
         run_migrations()
         with get_engine().begin() as conn:
             conn.execute(text(f"TRUNCATE {OPERATIONAL_TABLES}, road_edges, road_conditions, road_nodes, service_areas CASCADE"))
-    result = seed(a.reset or a.reset_network, a.seed, a.ambulances, a.hospitals, a.historical, a.synthetic_network)
+    result = seed(a.reset or a.reset_network, a.seed, a.ambulances, a.hospitals, a.historical, a.synthetic_network,
+                  a.hospitals_source)
     import json
     print(json.dumps(result, indent=2, default=str))

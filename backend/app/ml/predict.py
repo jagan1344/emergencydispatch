@@ -58,17 +58,29 @@ class SeverityModel:
         return self._bundle is not None
 
     @property
+    def dataset(self) -> str | None:
+        return self._bundle.get("dataset", "synthetic") if self._bundle else None
+
+    @property
     def version(self) -> str | None:
         return self._bundle["version"] if self._bundle else None
 
     def predict(self, case: dict) -> Prediction:
         if not self._bundle:
             raise ModelUnavailable(self.error or "model not loaded")
-        feats = encode_case(case)
+        columns = self._bundle.get("features", FEATURES)
+        if self._bundle.get("dataset", "synthetic") == "synthetic":
+            feats = encode_case(case)
+        else:
+            from app.ml.real_datasets import encode_case_real
+            feats = encode_case_real(case)
         t0 = time.perf_counter()
         with self._lock:
             pipe = self._bundle["pipeline"]
-            proba = pipe.predict_proba(pd.DataFrame([feats], columns=FEATURES))[0]
+            frame = pd.DataFrame([feats], columns=columns)
+            if self._bundle.get("dataset", "synthetic") != "synthetic":
+                frame = frame.astype(float)
+            proba = pipe.predict_proba(frame)[0]
             classes = list(pipe.classes_)
         probs = {c: round(float(p), 4) for c, p in zip(classes, proba)}
         best = max(probs, key=probs.get)

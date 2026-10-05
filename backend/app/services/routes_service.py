@@ -116,6 +116,9 @@ def activate(db: Session, route: Route, rr: RouteResult, ambulance_id: str, inci
     """Register the route as the ambulance's live route and send it to the simulator after commit."""
     ar = ActiveRoute(route.id, ambulance_id, incident_id, leg, list(rr.segments), dest, rr.adjusted_duration_s)
     cmd = route_command(route, rr, incident_id, leg)
+    from app.models import Ambulance
+    amb = db.get(Ambulance, ambulance_id)
+    cmd["driver"] = amb.gps_source if amb is not None else "SIMULATED"   # simulator ignores DEVICE units
 
     def _go():
         ACTIVE.set(ar)
@@ -277,7 +280,13 @@ def _reroute(db: Session, ar: ActiveRoute, reason: str, old_eta: float) -> dict:
         log_event(log, "ROUTE_CHECK_KEEP", ambulance_id=ar.ambulance_id, reason=reason, old_eta_s=old_eta, alt_eta_s=new_eta)
         return {**payload, "decision": "KEEP_CURRENT", "new_eta_s": new_eta}
 
+    return _apply_new_route(db, ar, new, point, reason, old_eta, payload)
+
+
+def _apply_new_route(db: Session, ar: ActiveRoute, new: RouteResult, point: tuple[float, float], reason: str,
+                     old_eta: float, payload: dict) -> dict:
     from app.models import Route as RouteModel
+    new_eta = new.adjusted_duration_s
     old = db.get(RouteModel, ar.route_id)
     if old is not None:
         old.active = False
@@ -297,3 +306,15 @@ def _reroute(db: Session, ar: ActiveRoute, reason: str, old_eta: float) -> dict:
               old_eta_s=None if math.isinf(old_eta) else round(old_eta, 1), new_eta_s=round(new_eta, 1),
               time_saved_s=saved)
     return data
+
+
+def reroute_from_point(db: Session, ar: ActiveRoute, point: tuple[float, float], reason: str) -> dict | None:
+    """New route from an arbitrary position (e.g. a real GPS fix that left the planned route)."""
+    router = require_router()
+    try:
+        new = router.route(point, ar.dest)
+    except NoRouteError:
+        return None
+    payload = {"ambulance_id": ar.ambulance_id, "incident_id": str(ar.incident_id) if ar.incident_id else None,
+               "reason": reason, "old_route_id": str(ar.route_id), "leg": ar.leg, "old_eta_s": None}
+    return _apply_new_route(db, ar, new, point, reason, math.inf, payload)

@@ -18,7 +18,8 @@ def on_message(topic: str, payload: dict, retained: bool) -> None:
     if parts[0] == "ambulance" and len(parts) == 3:
         amb_id, kind = parts[1], parts[2]
         if kind == "location":
-            TELEMETRY.handle_location(amb_id, payload)
+            if payload.get("source") != "DEVICE":      # device fixes were already applied by the REST endpoint
+                TELEMETRY.handle_location(amb_id, payload)
         elif kind == "telemetry":
             TELEMETRY.handle_telemetry(amb_id, payload)
         elif kind == "status" and payload.get("source") != "BACKEND" and not retained:

@@ -14,7 +14,7 @@ export default function NewEmergency() {
   const nav = useNavigate();
   const [loc, setLoc] = useState<[number, number] | null>(null);
   const [f, setF] = useState({
-    emergency_type: "accident", patient_age: 45, heart_rate: 110, respiratory_rate: 24, oxygen_saturation: 93,
+    emergency_type: "accident", patient_age: 45, heart_rate: 110, respiratory_rate: 24, oxygen_saturation: 93, systolic_bp: "", temperature_c: "",
     consciousness: "ALERT", bleeding: "MODERATE", injury_severity: "MODERATE", accident_type: "ROAD",
     breathing_difficulty: false, chest_pain: false, address: "", notes: "",
   });
@@ -24,7 +24,8 @@ export default function NewEmergency() {
   const set = (k: string, v: any) => setF((p) => ({ ...p, [k]: v }));
   const location = loc || (health ? [health.city.lat, health.city.lon] as [number, number] : null);
   const caseBody = () => ({ ...f, patient_age: +f.patient_age, heart_rate: +f.heart_rate, respiratory_rate: +f.respiratory_rate,
-    oxygen_saturation: f.oxygen_saturation ? +f.oxygen_saturation : null });
+    oxygen_saturation: f.oxygen_saturation ? +f.oxygen_saturation : null,
+    systolic_bp: f.systolic_bp !== "" ? +f.systolic_bp : null, temperature_c: f.temperature_c !== "" ? +f.temperature_c : null });
 
   const doPreview = async () => {
     setError(null);
@@ -42,7 +43,7 @@ export default function NewEmergency() {
     } catch (err: any) { setError(err.message); } finally { setBusy(false); }
   };
   const num = (k: keyof typeof f, label: string, min: number, max: number) => (
-    <label>{label}<input type="number" name={k} min={min} max={max} value={f[k] as number} onChange={(e) => set(k, e.target.value)} required /></label>
+    <label>{label}<input type="number" name={k} min={min} max={max} value={f[k] as number} onChange={(e) => set(k, e.target.value)} required={k !== "oxygen_saturation"} /></label>
   );
   const sel = (k: keyof typeof f, label: string, opts: string[]) => (
     <label>{label}<select name={k} value={f[k] as string} onChange={(e) => set(k, e.target.value)}>{opts.map((o) => <option key={o}>{o}</option>)}</select></label>
@@ -57,6 +58,8 @@ export default function NewEmergency() {
           {num("heart_rate", "Heart rate (bpm)", 0, 300)}
           {num("respiratory_rate", "Respiratory rate (/min)", 0, 80)}
           {num("oxygen_saturation", "SpO₂ (%)", 50, 100)}
+          <label>Systolic BP (mmHg, optional)<input type="number" name="systolic_bp" min={30} max={300} value={f.systolic_bp} onChange={(e) => set("systolic_bp", e.target.value)} /></label>
+          <label>Temperature (°C, optional)<input type="number" step="0.1" name="temperature_c" min={25} max={45} value={f.temperature_c} onChange={(e) => set("temperature_c", e.target.value)} /></label>
           {sel("consciousness", "Consciousness (AVPU)", ["ALERT", "VERBAL", "PAIN", "UNRESPONSIVE"])}
           {sel("bleeding", "Bleeding", GRADES)}
           {sel("injury_severity", "Injury severity", GRADES)}
@@ -77,7 +80,7 @@ export default function NewEmergency() {
             <div className="muted small">{preview.rule.reasons.join(" · ") || "no risk factors"}</div>
           </div>
         )}
-        <p className="disclaimer">Severity model trained on synthetic data for academic demonstration only — not a medical diagnosis.</p>
+        <p className="disclaimer">Severity model for academic demonstration only (training dataset shown in the status bar) — not a medical diagnosis.</p>
       </Panel>
       <Panel title="Incident location" className="map-panel">
         <OpsMap height="100%" onMapClick={(lat, lon) => setLoc([lat, lon])}

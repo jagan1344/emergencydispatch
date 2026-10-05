@@ -88,6 +88,9 @@ def _dispatch(db: Session, inc: EmergencyIncident, chosen: ScoredCandidate, rr: 
     explanation = explain_dispatch(order)
     if not chosen.suitable:
         explanation += "\nWARNING: no unit with the required capability was available."
+    if rr.through_closure:
+        explanation += (f"\nWARNING: the incident can only be reached through closed road(s) "
+                        f"{', '.join(rr.through_closure)} - access at walking pace assumed; arrange police escort.")
     if note:
         explanation += "\n" + note
     if rr.shortest_distance_m is None:

@@ -93,6 +93,9 @@ class AmbulanceSimulator:
         with self.lock:
             u = self.units.setdefault(amb_id, Unit(amb_id))
             cmd = p.get("command")
+            if cmd == "FOLLOW_ROUTE" and p.get("driver") == "DEVICE":
+                u.mission = None          # a real GPS device drives this unit
+                return
             if cmd == "FOLLOW_ROUTE":
                 segs = [Seg(s.get("road_id"), float(s["length_m"]), float(s["speed_kph"]), float(s.get("base_speed_kph", s["speed_kph"])),
                             [tuple(c) for c in s["coords"]]) for s in p["segments"] if s.get("coords")]

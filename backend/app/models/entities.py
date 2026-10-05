@@ -89,6 +89,9 @@ class Hospital(Base):
     stroke_available: Mapped[bool] = mapped_column(Boolean, default=False)
     current_load: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(16), default="ACTIVE")
+    data_source: Mapped[str] = mapped_column(String(16), default="SYNTHETIC")
+    osm_id: Mapped[str | None] = mapped_column(String(32))
+    phone: Mapped[str | None] = mapped_column(String(64))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -106,6 +109,8 @@ class EmergencyIncident(Base):
     heart_rate: Mapped[int] = mapped_column(Integer)
     respiratory_rate: Mapped[int] = mapped_column(Integer)
     oxygen_saturation: Mapped[int | None] = mapped_column(Integer)
+    systolic_bp: Mapped[int | None] = mapped_column(Integer)
+    temperature_c: Mapped[float | None] = mapped_column(Float)
     consciousness: Mapped[str] = mapped_column(String(16))
     bleeding: Mapped[str] = mapped_column(String(16))
     injury_severity: Mapped[str] = mapped_column(String(16))
@@ -159,6 +164,8 @@ class Ambulance(Base):
     destination_lat: Mapped[float | None] = mapped_column(Float)
     destination_lon: Mapped[float | None] = mapped_column(Float)
     missions_today: Mapped[int] = mapped_column(Integer, default=0)
+    gps_source: Mapped[str] = mapped_column(String(16), default="SIMULATED")
+    gps_accuracy_m: Mapped[float | None] = mapped_column(Float)
     last_updated: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

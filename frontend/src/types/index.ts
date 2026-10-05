@@ -6,12 +6,13 @@ export interface Ambulance {
   fuel_level: number; current_speed: number; destination: string | null; missions_today: number;
   capacity: number; last_updated: string; eta_remaining_s?: number | null;
   progress_m?: number | null; route_length_m?: number | null; leg?: string | null;
+  gps_source?: string; gps_accuracy_m?: number | null;
 }
 
 export interface Hospital {
   id: string; name: string; latitude: number; longitude: number; emergency_capacity: number;
   icu_available: number; trauma_available: boolean; cardiac_available: boolean; stroke_available: boolean;
-  current_load: number; status: string; load_pct: number;
+  current_load: number; status: string; load_pct: number; data_source?: string; phone?: string | null;
 }
 
 export interface Candidate {
@@ -38,7 +39,7 @@ export interface Route {
 export interface Incident {
   id: string; reference: string; created_at: string; latitude: number; longitude: number; address: string | null;
   emergency_type: string; patient_age: number; heart_rate: number; respiratory_rate: number;
-  oxygen_saturation: number | null; consciousness: string; bleeding: string; injury_severity: string;
+  oxygen_saturation: number | null; systolic_bp?: number | null; temperature_c?: number | null; consciousness: string; bleeding: string; injury_severity: string;
   accident_type: string; breathing_difficulty: boolean; chest_pain: boolean; notes: string | null;
   rule_score: number | null; rule_severity: Severity | null; rule_components: Record<string, number> | null;
   predicted_severity: Severity | null; ml_confidence: number | null; ml_status: string; severity: Severity | null;
@@ -73,7 +74,7 @@ export interface WsEvent { type: string; data: any; receivedAt?: number }
 
 export interface Health {
   status: string; database: { ok: boolean }; routing: { mode: string; graph: any; osrm: any; error: string | null };
-  ml_model: { available: boolean; version: string | null; error: string | null };
+  ml_model: { available: boolean; version: string | null; dataset?: string | null; error: string | null };
   mqtt: { connected: boolean }; simulator: { ambulance_sim_connected: boolean; traffic_sim_connected: boolean };
   city: { name: string; lat: number; lon: number; radius_m: number }; sim_time_scale: number;
 }

@@ -67,7 +67,8 @@ export default function EmergencyDetails() {
           <ul className="reasons">{(d.severity_reasons || []).map((r) => <li key={r}>{r}</li>)}</ul>
           {d.rule_components && <div className="muted small">Rule components: {Object.entries(d.rule_components).map(([k, v]) => `${k} ${v}`).join(" · ")}</div>}
           {d.priority_components && <div className="muted small">Priority components: {Object.entries(d.priority_components).map(([k, v]) => `${k} ${v ?? "—"}`).join(" · ")}</div>}
-          <p className="disclaimer">Synthetic-data model for academic demonstration; not a medical diagnosis.</p>
+          <div className="muted small">Vitals: HR {d.heart_rate} · RR {d.respiratory_rate} · SpO₂ {d.oxygen_saturation ?? "—"} · SBP {d.systolic_bp ?? "—"} · Temp {d.temperature_c ?? "—"}</div>
+          <p className="disclaimer">Academic demonstration model; not a medical diagnosis.</p>
         </Panel>
         <Panel title="Live status" className="map-panel">
           <div className="live-row">

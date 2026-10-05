@@ -100,9 +100,9 @@ export default function Analytics() {
               <td>{r.old_eta_s != null ? fmtMin(r.old_eta_s) : "∞"} → {fmtMin(r.new_eta_s)}</td><td>{fmtMin(r.time_saved_s)}</td></tr>)}
               {!rr.length && <tr><td colSpan={6} className="muted">No re-routes yet</td></tr>}</tbody></table>
         </Panel>
-        <Panel title="Severity model (synthetic data, held-out 20%)">
+        <Panel title={`Severity model (${ml?.metrics?.dataset?.name || "?"} data, held-out 20%)`}>
           {rf ? (<>
-            <div className="muted small">{ml.metrics.disclaimer}</div>
+            <div className="muted small">{ml.metrics.dataset?.description}<br />{ml.metrics.disclaimer} · n = {ml.metrics.dataset?.rows}</div>
             <table className="table compact"><thead><tr><th>Model</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1</th></tr></thead>
               <tbody>{Object.entries(ml.metrics.models).map(([k, m]: any) => <tr key={k} className={k === ml.metrics.deployed_model ? "selected" : ""}>
                 <td>{k}</td><td>{m.accuracy}</td><td>{m.precision_macro}</td><td>{m.recall_macro}</td><td>{m.f1_macro}</td></tr>)}</tbody></table>

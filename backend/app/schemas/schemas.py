@@ -38,6 +38,8 @@ class CaseFeatures(BaseModel):
     heart_rate: int = Field(ge=0, le=300, description="beats per minute")
     respiratory_rate: int = Field(ge=0, le=80, description="breaths per minute")
     oxygen_saturation: int | None = Field(default=None, ge=50, le=100, description="SpO2 %")
+    systolic_bp: int | None = Field(default=None, ge=30, le=300, description="systolic blood pressure, mmHg")
+    temperature_c: float | None = Field(default=None, ge=25, le=45, description="body temperature, °C")
     consciousness: Consciousness
     bleeding: Grade
     injury_severity: Grade
@@ -59,6 +61,13 @@ class EmergencyCreate(CaseFeatures):
         if v != v or v in (float("inf"), float("-inf")):
             raise ValueError("coordinate must be finite")
         return v
+
+
+class DeviceFix(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    speed_kph: float | None = Field(default=None, ge=0, le=300)
+    accuracy_m: float | None = Field(default=None, ge=0, le=10_000)
 
 
 class DispatchRequest(BaseModel):

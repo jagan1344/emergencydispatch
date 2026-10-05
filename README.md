@@ -100,7 +100,7 @@ emergencydispatch/
 │  ├─ routing/      graph.py engine.py osrm_client.py traffic.py eta.py network_import.py
 │  ├─ dispatch/     severity.py priority.py scoring.py optimizer.py
 │  ├─ mqtt/         client.py handlers.py         websocket/manager.py     utils/
-│  └─ tests/        30 pytest tests
+│  └─ tests/        38 pytest tests
 ├─ frontend/src/    pages/ components/ map/ hooks/useLive.tsx services/ types/   e2e/ (Playwright)
 ├─ simulator/       ambulance_simulator.py traffic_simulator.py run_simulator.py common.py
 ├─ database/        migrations/0001_initial.sql   seed/seed_data.py
@@ -329,6 +329,85 @@ docker run -d --name osrm -p 5000:5000 -v "${PWD}\data\maps:/data" osrm/osrm-bac
 Development accounts created by the seed (change for anything beyond local use):
 `admin / admin123` (ADMIN), `dispatcher / dispatch123` (DISPATCHER), `viewer / viewer123` (VIEWER).
 
+## 13a. Real-data mode (switch off the demo data)
+
+Out of the box the system runs on demo data so that it works with no downloads. Every synthetic part can
+be replaced with free, real data:
+
+| Component | Demo default | Real data (free) | How |
+|---|---|---|---|
+| Road network | synthetic grid around `CITY_LAT/LON` | **OpenStreetMap** roads of your city | `scripts\setup_real_data.ps1` (Overpass download) |
+| Routing | built-in graph | **OSRM** on the same OSM extract | same script (Docker Desktop) |
+| Hospitals | 5 templates marked "(synthetic)" | **real hospitals** from OSM (`amenity=hospital`), with capabilities **verified by you** in a CSV | same script + `app.hospital_data import` |
+| Severity model | synthetic generator | **real ED triage data**: KTAS (1 267 patients, Kaggle) or MIMIC-IV-ED | `python -m app.ml.train --dataset ktas --data data.csv` |
+| Ambulance GPS | MQTT simulator | **the crew's phone GPS** (Crew GPS page) | `npm run dev:https`, open `/crew` on the phone |
+| Traffic | simulator + dispatcher events | *no free real-time source for Indian cities* | stays simulated (see Limitations) |
+
+**Step 1: real roads, routing and hospitals (one command).** PostgreSQL/PostGIS and Docker Desktop must be running.
+```powershell
+cd D:\emergencydispatch
+.\.venv\Scripts\Activate.ps1
+.\scripts\setup_real_data.ps1                         # Bengaluru, 6 km radius (edit -City/-Lat/-Lon/-Radius)
+# what it does: scripts\fetch_osm.py downloads roads + hospitals from the Overpass API (≈20-80 MB, once)
+#   -> writes CITY_*, OSM_PBF_PATH, HOSPITALS_CSV, OSRM_URL into .env
+#   -> python -m app.seed --reset-network   (road graph into PostGIS + real OSM hospitals)
+#   -> exports data\hospitals_bengaluru.csv -> builds OSRM and starts it on :5000
+```
+Restart the backend. The status bar should show `Routing: osm+osrm`, and the Hospitals page should show
+`data_source = OSM`. If the Overpass servers are busy, re-run later. You can also download a
+Geofabrik/BBBike extract and pass it with `-OsmFile path\to\file.osm.pbf` (see `data/maps/README.md`).
+
+**Step 2: verify hospital capabilities.** OpenStreetMap gives real names and locations, but it rarely says
+whether a hospital has an ICU, a trauma centre, a cath lab (cardiac) or a stroke unit. Those flags are
+set only when OSM tags or the hospital's own name state them. Everything else starts as unknown, so a
+CRITICAL patient shows a "no fully suitable hospital" warning until you verify the data.
+Open `data\hospitals_bengaluru.csv` in Excel and fill in `icu_available` (beds), `trauma_available`,
+`cardiac_available`, `stroke_available` and `emergency_capacity` from each hospital's website or the
+Karnataka health department directory. Delete hospitals that have no emergency department, then:
+```powershell
+cd backend; python -m app.hospital_data import ..\data\hospitals_bengaluru.csv   # -> data_source = VERIFIED
+```
+The CSV is also re-applied automatically on every `app.seed` run (via `HOSPITALS_CSV` in `.env`).
+Commit it to Git; it becomes part of your project's data.
+
+**Step 3: train the severity model on real triage data.**
+1. Create a free Kaggle account and download **"Emergency Service - Triage Application"** (`data.csv`).
+   It is the dataset of Moon et al., *PLOS ONE* 14(9):e0216972 (2019), CC BY 4.0: 1 267 adult ED visits
+   with vitals, mental state, chief complaint and expert KTAS level (1-5).
+2. Train:
+   ```powershell
+   cd backend
+   python -m app.ml.train --dataset ktas --data C:\Users\<you>\Downloads\data.csv
+   ```
+   (or pass `-KtasCsv` to `setup_real_data.ps1`). KTAS 1/2/3/4-5 map to CRITICAL/HIGH/MEDIUM/LOW. The model
+   uses age, HR, RR, SpO₂, systolic BP, temperature, AVPU, injury, chest pain and breathing difficulty.
+   Missing values are imputed. The intake form has optional SBP and temperature fields for this model.
+3. Restart the backend. The status bar shows `ML: ktas data`, and Analytics shows the new held-out metrics.
+   Expect much lower accuracy than on synthetic data, because real triage is noisy. Report the real
+   number; it is the honest one.
+   *MIMIC-IV-ED* (`--dataset mimic-ed --data triage.csv`) is also supported if you complete the free
+   PhysioNet credentialing.
+
+**Step 4: real GPS from a phone.**
+```powershell
+cd frontend; npm run dev:https          # https://<laptop-IP>:5173 (self-signed certificate)
+```
+Allow port 5173 in Windows Firewall. Then:
+1. Connect the phone to the same Wi-Fi and open `https://<laptop-IP>:5173/crew`.
+2. Accept the certificate warning and log in as `dispatcher`.
+3. Pick the ambulance and tap **Start sharing GPS**.
+
+From then on the simulator stops moving that unit. The phone's position is map-matched onto the planned
+route to compute progress and live ETA. Arrival is detected within 40 m of the destination, or the crew
+taps **Confirm arrival**. If the phone leaves the route by more than 100 m on two fixes in a row, a new
+route is computed from the real position. **Stop & hand back to simulator** returns the unit to the
+simulator. (Phones only allow location access on HTTPS pages, which is why `dev:https` exists.)
+
+**What stays simulated, and why:** live traffic. Real-time traffic for Indian cities is only available
+from commercial APIs (Google, TomTom, HERE, Mapbox), which this zero-cost project deliberately avoids.
+The traffic simulator and the dispatcher's Traffic Control remain the source of congestion, accidents
+and closures.
+
 ## 14. Running the project
 Three terminals (PostgreSQL and Mosquitto already running), or `.\scripts\start_windows.ps1`:
 ```powershell
@@ -403,6 +482,7 @@ Interactive docs: `/docs`. All endpoints except login/health require `Authorizat
 | POST | `/api/emergencies/{id}/reroute` · `/cancel` | DISPATCHER | re-evaluate route · cancel |
 | GET | `/api/ambulances` `?status=&near_lat=&near_lon=&radius_m=` · `/{id}` | any | fleet (PostGIS `ST_DWithin` filter), track |
 | POST/PATCH | `/api/ambulances` · `/{id}` | ADMIN | manage units |
+| POST | `/api/ambulances/{id}/gps` · `/arrived` · `/gps/release` | DISPATCHER | real device GPS fix (map-matched) · crew confirms arrival · hand unit back to simulator |
 | GET/POST/PATCH | `/api/hospitals` | any / ADMIN | hospitals |
 | GET | `/api/routes` `?active=` · `/api/routes/{id}` | any | routes with segments |
 | POST | `/api/routes/calculate` | any | traffic-aware route between two points |
@@ -420,7 +500,7 @@ MQTT topics: `ambulance/{id}/location|status|telemetry|command`, `traffic/{road_
 
 ## 18. Testing
 ```powershell
-# backend: 30 tests (wipes and recreates TEST_DATABASE_URL, default database ems_test)
+# backend: 38 tests (wipes and recreates TEST_DATABASE_URL, default database ems_test)
 cd backend; python -m pytest
 
 # frontend E2E (backend on :8000 and `npm run dev` running; simulator optional)
@@ -438,11 +518,16 @@ cd frontend; npx playwright install chromium; npx playwright test
   zero-length route regression.
 * `test_integration.py`: full workflow emergency → severity → selection → route → dispatch → movement
   → road closure → automatic re-route → arrival → hospital → completion → analytics; OR-Tools batch dispatch.
+* `test_real_data.py`: KTAS / MIMIC-IV-ED loaders (decimal commas, missing markers, acuity mapping),
+  training + prediction on the KTAS format, OSM hospital import from the real Monaco extract, verified CSV round-trip.
+* `test_device_gps.py`: phone-GPS fixes drive the mission (map-matching, progress, off-route re-route from the
+  real position, arrival radius), input validation and RBAC.
+* `frontend/e2e/crew.spec.ts`: emulated phone geolocation on the Crew GPS page drives an ambulance to ARRIVED.
 * `frontend/e2e/dispatch.spec.ts`: login (bad + good), create emergency via form and map click, see
   dispatch explanation, see the ambulance marker on the map, traffic event → re-route banner and route
   table, analytics, viewer is read-only.
 
-Last run in the development environment: **backend 30 passed**, **Playwright 3 passed**.
+Last run in the development environment: **backend 38 passed**, **Playwright 4 passed**.
 
 ## 19. Measured results
 Measured in the development container (Linux, 4 vCPU, Python 3.11) on the Monaco OSM network
@@ -476,16 +561,22 @@ because the sandbox could not reach the OSM tile server; on a normal machine the
 | ![Analytics](docs/screenshots/07-analytics.png) | |
 
 ## 21. Limitations
-* **Traffic is simulated** (Markov model + scripted/dispatcher events). It is not obtained from
-  proprietary real-time traffic APIs.
-* **The medical severity model is educational and not clinically validated.** It is trained on synthetic
-  data; its accuracy describes the synthetic generator only. It does not predict survival, does not
-  diagnose, and must not be used for real triage.
-* **Ambulance GPS is simulated**; ambulances drive at the traffic-adjusted road speed (no lights-and-sirens
-  model, no intersections/turn penalties beyond OSRM's own).
-* OSM/OSRM represent the road network, not live road conditions; OSM speed limits are often missing and
+* **Traffic is simulated** (Markov model + scripted/dispatcher events). No free real-time traffic source
+  exists for Indian cities; commercial APIs are deliberately not used.
+* **The severity model is educational and not clinically validated.** In demo mode it is trained on
+  synthetic data, so its accuracy describes the generator only. In real-data mode it reproduces the
+  triage levels assigned in a public dataset (KTAS, Korea, 1 267 adult ED visits). That is a different
+  population and setting from Indian pre-hospital care. It does not diagnose and must not be used for real triage.
+* **Ambulance GPS** is simulated unless a crew phone shares its location (Crew GPS page). Simulated units
+  drive at the traffic-adjusted road speed (no lights-and-sirens model).
+* OSM/OSRM represent the road network, not live road conditions. OSM speed limits are often missing and
   replaced by per-road-class defaults.
-* **Synthetic data** everywhere: incidents, hospitals (names marked "synthetic"), fleet, history.
+* **Hospital capabilities** imported from OSM are incomplete until verified in the hospitals CSV. Hospital
+  load is simulated (admissions from dispatches, simulated discharges).
+* **Incidents** are entered by the dispatcher or generated by the simulation. The 50 "historical" seed
+  incidents are synthetic (source `HISTORICAL_SEED`).
+* If no open route exists, the router passes closed roads at walking pace (5 km/h) and warns the
+  dispatcher, rather than declaring the patient unreachable.
 * The weighted scores are engineering choices; they do not guarantee the fastest possible response.
 * Single backend process; dispatch serialisation uses an in-process lock plus row locks, which suits one
   instance (horizontal scaling would need a distributed lock/queue).
@@ -497,7 +588,9 @@ because the sandbox could not reach the OSM tile server; on a normal machine the
 * Demand forecasting and proactive ambulance repositioning (coverage optimisation with OR-Tools).
 * Turn-by-turn instructions, lights-and-sirens speed model, multi-patient incidents.
 * Calibrated clinical scores (e.g. NEWS2) in place of the synthetic model, with clinician input.
-* Redis/Kafka event bus for multiple backend instances; mobile crew app; offline-capable PWA.
+* Redis/Kafka event bus for multiple backend instances; installable offline-capable crew PWA.
+* Real incident history: anonymised call records from the state 108 emergency service (via an
+  institutional data-sharing agreement) to calibrate demand and response-time analytics.
 
 ---
 
@@ -514,7 +607,7 @@ because the sandbox could not reach the OSM tile server; on a normal machine the
   backend → batched PostGIS writes → WebSocket push to a Leaflet command-center UI.
 * Used Google OR-Tools CP-SAT to assign multiple simultaneous incidents globally by priority; PostGIS
   KNN/`ST_DWithin`/`ST_Contains` for candidate search and validation.
-* Added JWT/RBAC, structured logging, Prometheus metrics, Docker Compose, 30 pytest tests (unit, API,
+* Added JWT/RBAC, structured logging, Prometheus metrics, Docker Compose, 38 pytest tests (unit, API,
   integration) and Playwright E2E tests; reproducible seeded simulations.
 
 ## Interview questions & answers (based on this implementation)
