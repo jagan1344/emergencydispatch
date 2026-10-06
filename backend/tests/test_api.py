@@ -157,3 +157,36 @@ def test_zero_length_route_is_stored(client, viewer_headers):
     r = client.post("/api/routes/calculate", json={"origin": p, "destination": p}, headers=viewer_headers)
     assert r.status_code == 200, r.text
     assert r.json()["distance_m"] == 0 and len(r.json()["geometry"]) == 2
+
+
+def test_incident_far_from_any_road_is_rejected(client, dispatcher_headers, monkeypatch):
+    """Regression: such incidents used to be accepted and then wait forever with no visible reason."""
+    from app.services import incident_service
+    from app.utils.geo import destination_point
+    monkeypatch.setattr(incident_service, "MAX_ROAD_DISTANCE_M", 150.0)
+    far = destination_point(12.9716, 77.5946, 45, 2800)   # inside the service polygon, beyond the road grid
+    p = {**MILD_CASE, "latitude": far[0], "longitude": far[1], "auto_dispatch": False}
+    r = client.post("/api/emergencies", json=p, headers=dispatcher_headers)
+    assert r.status_code == 422 and "nearest road" in r.json()["detail"], r.text
+
+
+def test_waiting_reason_is_visible(client, dispatcher_headers, admin_headers, viewer_headers):
+    from app.services.dispatch_service import dispatcher_cycle
+    ambs = client.get("/api/ambulances", headers=admin_headers).json()
+    for a in ambs:
+        client.patch(f"/api/ambulances/{a['id']}", json={"status": "OFFLINE"}, headers=admin_headers)
+    try:
+        p = {**MILD_CASE, "latitude": CENTER[0], "longitude": CENTER[1], "auto_dispatch": False}
+        inc = client.post("/api/emergencies", json=p, headers=dispatcher_headers).json()
+        # make one unit available but unreachable-free: none available -> reason recorded
+        dispatcher_cycle()
+        d = client.get(f"/api/emergencies/{inc['id']}", headers=viewer_headers).json()
+        assert d["status"] == "WAITING" and "no ambulance available" in d["dispatch_note"]
+        client.patch(f"/api/ambulances/{ambs[0]['id']}", json={"status": "AVAILABLE"}, headers=admin_headers)
+        dispatcher_cycle()
+        d = client.get(f"/api/emergencies/{inc['id']}", headers=viewer_headers).json()
+        assert d["status"] == "DISPATCHED" and d["dispatch_note"] is None
+        client.post(f"/api/emergencies/{inc['id']}/cancel", headers=dispatcher_headers)
+    finally:
+        for a in ambs:
+            client.patch(f"/api/ambulances/{a['id']}", json={"status": "AVAILABLE"}, headers=admin_headers)

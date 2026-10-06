@@ -45,7 +45,8 @@ export default function Dashboard() {
                     <td><Link to={`/emergencies/${i.id}`}>{i.reference}</Link><div className="muted small">{i.emergency_type}</div></td>
                     <td><SeverityBadge s={i.severity} /></td>
                     <td>{i.priority?.toFixed(0)}</td>
-                    <td><StatusBadge s={i.status} /></td>
+                    <td><StatusBadge s={i.status} />{i.status === "WAITING" && i.dispatch_note &&
+                      <div className="muted small" title={i.dispatch_note}>{i.dispatch_note.slice(0, 60)}{i.dispatch_note.length > 60 ? "…" : ""}</div>}</td>
                     <td>{i.assigned_ambulance || "—"}{i.assigned_ambulance && ambulances[i.assigned_ambulance]?.eta_remaining_s != null &&
                       <div className="muted small">ETA {fmtMin(ambulances[i.assigned_ambulance]?.eta_remaining_s)}</div>}</td>
                   </tr>

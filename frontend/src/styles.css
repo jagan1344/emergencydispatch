@@ -144,3 +144,5 @@ main { min-width: 0; display: flex; flex-direction: column; }
 
 .login { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
 .login-card { width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 12px; }
+.warn-note { background: #d2992222; border: 1px solid #d29922; color: var(--text); padding: 8px 10px; border-radius: 6px; margin: 2px 0; }
+.warn-note code { font-size: 12px; }

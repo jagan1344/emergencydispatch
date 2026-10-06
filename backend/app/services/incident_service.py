@@ -39,6 +39,17 @@ def inside_service_area(db: Session, lat: float, lon: float) -> bool | None:
     return bool(row[0])
 
 
+MAX_ROAD_DISTANCE_M = 1000.0
+
+
+def distance_to_road_m(db: Session, lat: float, lon: float) -> float | None:
+    """Distance from a point to the nearest road of the imported network (PostGIS KNN + ST_Distance)."""
+    row = db.execute(text(
+        "SELECT ST_Distance(geom, ST_SetSRID(ST_MakePoint(:lon,:lat),4326)::geography) FROM road_conditions "
+        "ORDER BY geom <-> ST_SetSRID(ST_MakePoint(:lon,:lat),4326)::geography LIMIT 1"), {"lat": lat, "lon": lon}).first()
+    return None if row is None else float(row[0])
+
+
 def incident_dict(i: EmergencyIncident) -> dict:
     return {
         "id": str(i.id), "reference": i.reference, "created_at": i.created_at, "latitude": i.latitude,
@@ -53,7 +64,7 @@ def incident_dict(i: EmergencyIncident) -> dict:
         "severity": i.severity, "severity_reasons": i.severity_reasons, "priority": i.priority,
         "priority_components": i.priority_components, "required_capability": i.required_capability,
         "assigned_ambulance": i.assigned_ambulance, "destination_hospital": i.destination_hospital,
-        "status": i.status, "dispatched_at": i.dispatched_at, "arrived_at": i.arrived_at, "loaded_at": i.loaded_at,
+        "status": i.status, "dispatch_note": i.dispatch_note, "dispatched_at": i.dispatched_at, "arrived_at": i.arrived_at, "loaded_at": i.loaded_at,
         "hospital_arrived_at": i.hospital_arrived_at, "completed_at": i.completed_at, "cancelled_at": i.cancelled_at,
         "source": i.source, "created_by": i.created_by,
         "response_time_s": sim_seconds(i.created_at, i.arrived_at) if i.source != "HISTORICAL_SEED" else i.historical_response_s,
@@ -98,6 +109,11 @@ def create_incident(db: Session, data: dict, created_by: str | None = None, sour
     inside = inside_service_area(db, lat, lon)
     if inside is False:
         raise IncidentValidationError(f"location ({lat:.5f}, {lon:.5f}) is outside the service area")
+    road_d = distance_to_road_m(db, lat, lon)
+    if road_d is not None and road_d > MAX_ROAD_DISTANCE_M:
+        raise IncidentValidationError(
+            f"location ({lat:.5f}, {lon:.5f}) is {road_d:.0f} m from the nearest road - an ambulance cannot reach it. "
+            f"Place the incident on or near a road (within {MAX_ROAD_DISTANCE_M:.0f} m).")
     inc = EmergencyIncident(
         id=uuid.uuid4(), reference=next_reference(db), latitude=lat, longitude=lon, location=point_wkt(lat, lon),
         address=data.get("address"), emergency_type=data["emergency_type"], patient_age=data["patient_age"],

@@ -107,6 +107,7 @@ def _dispatch(db: Session, inc: EmergencyIncident, chosen: ScoredCandidate, rr: 
                        dispatch_id=dispatch.id)
     now = utcnow()
     inc.assigned_ambulance = amb.id
+    inc.dispatch_note = None
     inc.dispatched_at = now
     set_status(db, inc, "DISPATCHED", ambulance_id=amb.id)
     old_status = amb.status
@@ -170,6 +171,15 @@ def dispatcher_cycle() -> list[str]:
         available = db.scalar(text("SELECT count(*) FROM ambulances WHERE status='AVAILABLE' "
                                    "AND driver_status='ON_DUTY' AND fuel_level >= 10")) or 0
         if available == 0:
+            from app.services.simulation_service import simulator_connected
+            busy = db.scalar(text("SELECT count(*) FROM ambulances WHERE status NOT IN "
+                                  "('AVAILABLE','OFFLINE','MAINTENANCE')")) or 0
+            reason = f"no ambulance available - all {busy} on-duty units are on missions"
+            if not simulator_connected():
+                reason += ("; the ambulance simulator is NOT running, so dispatched units never finish their "
+                           "missions - start it with: python simulator/run_simulator.py")
+            for inc in waiting:
+                _note(db, inc, reason)
             return dispatched
         pq = IncidentPriorityQueue()
         by_id = {str(i.id): i for i in waiting}
@@ -186,9 +196,12 @@ def dispatcher_cycle() -> list[str]:
         for inc in batch:
             try:
                 evals[str(inc.id)] = evaluate_candidates(db, inc, k=6 if len(batch) > 1 else None)
-            except NoAmbulanceAvailable as exc:
-                emit(db, "DISPATCH_PENDING", {"incident_id": str(inc.id), "reference": inc.reference, "reason": str(exc)},
-                     incident_id=inc.id, persist=False)
+            except Exception as exc:  # one bad incident must never block the queue
+                reason = str(exc) if isinstance(exc, NoAmbulanceAvailable) else f"dispatch error: {type(exc).__name__}: {exc}"
+                if not isinstance(exc, NoAmbulanceAvailable):
+                    log.exception("candidate evaluation failed", extra={"event": "DISPATCH_EVALUATION_FAILED",
+                                                                         "fields": {"incident_id": str(inc.id)}})
+                _note(db, inc, reason)
         if not evals:
             return dispatched
         if len(evals) == 1:
@@ -212,9 +225,23 @@ def dispatcher_cycle() -> list[str]:
                 with db.begin_nested():
                     _dispatch(db, by_id[iid], chosen, routes[amb_id], ranked, method, decision_ms, note)
                 dispatched.append(iid)
-            except NoAmbulanceAvailable as exc:
+            except Exception as exc:
                 log_event(log, "DISPATCH_SKIPPED", incident_id=iid, reason=str(exc))
+                _note(db, by_id[iid], f"dispatch skipped: {exc}")
+        for iid in evals:                       # evaluated but not assigned (more incidents than free units)
+            if iid not in assignment:
+                _note(db, by_id[iid], "all suitable ambulances were assigned to higher-priority incidents; waiting in queue")
     return dispatched
+
+
+def _note(db: Session, inc: EmergencyIncident, reason: str) -> None:
+    """Remember (and broadcast) why an incident is still waiting, so the dispatcher can act on it."""
+    reason = reason[:500]
+    if inc.dispatch_note != reason:
+        inc.dispatch_note = reason
+        emit(db, "DISPATCH_PENDING", {"incident_id": str(inc.id), "reference": inc.reference, "reason": reason},
+             incident_id=inc.id)
+        log_event(log, "DISPATCH_PENDING", incident_id=str(inc.id), reason=reason)
 
 
 def preview(db: Session, inc: EmergencyIncident) -> dict:

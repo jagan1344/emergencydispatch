@@ -100,7 +100,7 @@ emergencydispatch/
 │  ├─ routing/      graph.py engine.py osrm_client.py traffic.py eta.py network_import.py
 │  ├─ dispatch/     severity.py priority.py scoring.py optimizer.py
 │  ├─ mqtt/         client.py handlers.py         websocket/manager.py     utils/
-│  └─ tests/        38 pytest tests
+│  └─ tests/        40 pytest tests
 ├─ frontend/src/    pages/ components/ map/ hooks/useLive.tsx services/ types/   e2e/ (Playwright)
 ├─ simulator/       ambulance_simulator.py traffic_simulator.py run_simulator.py common.py
 ├─ database/        migrations/0001_initial.sql   seed/seed_data.py
@@ -428,6 +428,19 @@ The status bar shows the live connection state of the WebSocket, database, MQTT,
 model and the routing mode. Simulated time runs `SIM_TIME_SCALE` (default 4) × faster than wall-clock.
 All durations shown are simulated seconds.
 
+### Troubleshooting: an emergency stays WAITING
+The incident page shows a yellow **"Why is this incident waiting?"** box with the exact reason, and the
+Dashboard priority queue shows it under the status. The usual causes:
+* **The ambulance simulator is not running** (status bar: *Ambulance sim* red). Dispatched units then
+  never move, never finish their missions and never become available again. Once all units are busy, new
+  incidents wait. Fix: start `python simulator\run_simulator.py`, or use **Simulation → Reset operations**
+  to return all units to base.
+* **No unit can reach the location.** Incidents must be within 1 km of a road of the imported network.
+  Points in water, parks or outside the imported radius are rejected at creation with a message.
+* **All suitable units were given to higher-priority incidents.** The OR-Tools assignment serves
+  the highest priority first; the incident is dispatched as soon as a unit frees up.
+You can always press **Dispatch now** to retry immediately; any error is shown in red.
+
 ## 15. Option B: Docker Compose
 ```powershell
 Copy-Item .env.example .env
@@ -500,7 +513,7 @@ MQTT topics: `ambulance/{id}/location|status|telemetry|command`, `traffic/{road_
 
 ## 18. Testing
 ```powershell
-# backend: 38 tests (wipes and recreates TEST_DATABASE_URL, default database ems_test)
+# backend: 40 tests (wipes and recreates TEST_DATABASE_URL, default database ems_test)
 cd backend; python -m pytest
 
 # frontend E2E (backend on :8000 and `npm run dev` running; simulator optional)
@@ -527,7 +540,7 @@ cd frontend; npx playwright install chromium; npx playwright test
   dispatch explanation, see the ambulance marker on the map, traffic event → re-route banner and route
   table, analytics, viewer is read-only.
 
-Last run in the development environment: **backend 38 passed**, **Playwright 4 passed**.
+Last run in the development environment: **backend 40 passed**, **Playwright 4 passed**.
 
 ## 19. Measured results
 Measured in the development container (Linux, 4 vCPU, Python 3.11) on the Monaco OSM network
@@ -607,7 +620,7 @@ because the sandbox could not reach the OSM tile server; on a normal machine the
   backend → batched PostGIS writes → WebSocket push to a Leaflet command-center UI.
 * Used Google OR-Tools CP-SAT to assign multiple simultaneous incidents globally by priority; PostGIS
   KNN/`ST_DWithin`/`ST_Contains` for candidate search and validation.
-* Added JWT/RBAC, structured logging, Prometheus metrics, Docker Compose, 38 pytest tests (unit, API,
+* Added JWT/RBAC, structured logging, Prometheus metrics, Docker Compose, 40 pytest tests (unit, API,
   integration) and Playwright E2E tests; reproducible seeded simulations.
 
 ## Interview questions & answers (based on this implementation)

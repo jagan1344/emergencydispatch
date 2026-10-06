@@ -132,6 +132,7 @@ class EmergencyIncident(Base):
     assigned_ambulance: Mapped[str | None] = mapped_column(String(16), ForeignKey("ambulances.id"))
     destination_hospital: Mapped[str | None] = mapped_column(String(16), ForeignKey("hospitals.id"))
     status: Mapped[str] = mapped_column(String(16), default="CREATED")
+    dispatch_note: Mapped[str | None] = mapped_column(String(500))
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     arrived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     loaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

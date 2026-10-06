@@ -14,7 +14,7 @@ const H_WEIGHTS: Record<string, number> = { eta: 0.45, capability: 0.25, load: 0
 
 export default function EmergencyDetails() {
   const { id } = useParams();
-  const { subscribe, ambulances } = useLive();
+  const { subscribe, ambulances, health } = useLive();
   const [d, setD] = useState<IncidentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,6 +47,16 @@ export default function EmergencyDetails() {
         {canAct && !["COMPLETED", "CANCELLED"].includes(d.status) && <button className="danger" disabled={busy} onClick={() => act("cancel")}>Cancel</button>}
       </div>
       <ErrorNote error={error || d.dispatch_error || null} />
+      {d.status === "WAITING" && (
+        <div className="warn-note" role="status" data-testid="waiting-reason">
+          <b>Why is this incident waiting?</b> {d.dispatch_note || "the dispatcher evaluates the queue every few seconds…"}
+        </div>)}
+      {amb && amb.gps_source !== "DEVICE" && health && !health.simulator.ambulance_sim_connected &&
+        ["DISPATCHED", "EN_ROUTE", "TO_HOSPITAL"].includes(d.status) && (
+        <div className="warn-note" role="status">
+          <b>Ambulance simulator is not running</b>: {amb.id} will not move. Start it with
+          <code> python simulator\run_simulator.py</code> (or use the Crew GPS page on a phone).
+        </div>)}
       <div className="details-grid">
         <Panel title="Severity assessment">
           <div className="sev-row">
@@ -144,6 +154,7 @@ function summarize(e: { type: string; data: any }) {
   if (e.type === "ROUTE_RECALCULATED") return `${d.reason}; ${d.old_eta_s != null ? fmtMin(d.old_eta_s) : "∞"} → ${fmtMin(d.new_eta_s)}`;
   if (e.type === "ROUTE_CHECK") return `${d.decision}: ${d.reason}`;
   if (e.type === "HOSPITAL_SELECTED") return d.hospital_name;
+  if (e.type === "DISPATCH_PENDING") return d.reason;
   if (e.type === "AMBULANCE_STATUS_CHANGED") return `${d.ambulance_id} ${d.old_status} → ${d.status}`;
   if (e.type === "EMERGENCY_CLASSIFIED") return `ML ${d.predicted_severity ?? "n/a"} · rule ${d.rule_score} (${d.rule_severity}) · final ${d.severity}`;
   return "";

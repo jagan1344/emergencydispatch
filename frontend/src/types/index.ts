@@ -45,7 +45,7 @@ export interface Incident {
   predicted_severity: Severity | null; ml_confidence: number | null; ml_status: string; severity: Severity | null;
   severity_reasons: string[] | null; priority: number | null; priority_components: Record<string, number | null> | null;
   required_capability: string | null; assigned_ambulance: string | null; destination_hospital: string | null;
-  status: string; dispatched_at: string | null; arrived_at: string | null; completed_at: string | null;
+  status: string; dispatch_note?: string | null; dispatched_at: string | null; arrived_at: string | null; completed_at: string | null;
   source: string; response_time_s: number | null;
 }
 
