@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import any_user
+from app.config import get_settings
+from app.dispatch.confidence import assess
 from app.dispatch.severity import combine_severity, severity_score
 from app.ml.predict import ModelUnavailable
 from app.models import User
@@ -27,7 +29,11 @@ def predict(body: CaseFeatures, _: User = Depends(any_user)):
     except ModelUnavailable as exc:
         raise HTTPException(503, f"ML model unavailable: {exc}")
     final, basis = combine_severity(pred.severity, rule.level)
-    return {"ml": {"severity": pred.severity, "confidence": pred.confidence, "probabilities": pred.probabilities,
+    st = get_settings()
+    ca = assess(pred.probabilities, pred.severity, st.dispatch_confidence_high, st.dispatch_confidence_low,
+                safety_override=basis.startswith("SAFETY_OVERRIDE"))
+    return {"decision": ca.as_dict(),
+            "ml": {"severity": pred.severity, "confidence": pred.confidence, "probabilities": pred.probabilities,
                    "model_version": pred.model_version, "latency_ms": round(pred.latency_ms, 2)},
             "rule": {"score": rule.score, "severity": rule.level, "components": rule.components, "reasons": rule.reasons},
             "final_severity": final, "basis": basis}

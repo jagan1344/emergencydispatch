@@ -118,6 +118,9 @@ def test_analytics_endpoints(client, viewer_headers):
 def test_ml_predict_endpoint(client, viewer_headers):
     r = client.post("/api/ml/predict", json=CRITICAL_CASE, headers=viewer_headers).json()
     assert r["ml"]["severity"] == "CRITICAL" and r["rule"]["severity"] == "CRITICAL"
+    # the preview shows the same confidence decision the dispatcher would apply
+    assert r["decision"]["confidence"] == r["ml"]["confidence"]
+    assert r["decision"]["decision_mode"] in {"AUTO_DISPATCH", "DISPATCH_WITH_REVIEW", "HUMAN_REVIEW"}
     assert client.get("/api/ml/model", headers=viewer_headers).json()["available"]
 
 

@@ -21,7 +21,7 @@ export default function NewEmergency() {
   const [preview, setPreview] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const set = (k: string, v: any) => setF((p) => ({ ...p, [k]: v }));
+  const set = (k: string, v: any) => { setF((p) => ({ ...p, [k]: v })); setPreview(null); };   // a preview always matches the form
   const location = loc || (health ? [health.city.lat, health.city.lon] as [number, number] : null);
   const caseBody = () => ({ ...f, patient_age: +f.patient_age, heart_rate: +f.heart_rate, respiratory_rate: +f.respiratory_rate,
     oxygen_saturation: f.oxygen_saturation ? +f.oxygen_saturation : null,
@@ -77,6 +77,12 @@ export default function NewEmergency() {
         {preview && (
           <div className="preview">
             <div><b>ML prediction:</b> {preview.ml.severity} ({(preview.ml.confidence * 100).toFixed(0)}%) · <b>Rule score:</b> {preview.rule.score} ({preview.rule.severity}) · <b>Final:</b> {preview.final_severity}</div>
+            {preview.decision && (
+              <div data-testid="preview-decision"><b>Dispatch decision:</b>{" "}
+                <b className={`mode-${preview.decision.decision_mode.toLowerCase()}`}>{preview.decision.decision_mode.replace(/_/g, " ")}</b>
+                {" "}<span className="muted small">confidence {preview.decision.confidence_level} · {preview.decision.decision_reason}</span>
+              </div>
+            )}
             <div className="muted small">{preview.rule.reasons.join(" · ") || "no risk factors"}</div>
           </div>
         )}
