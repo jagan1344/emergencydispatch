@@ -93,10 +93,10 @@ class AmbulanceSimulator:
         with self.lock:
             u = self.units.setdefault(amb_id, Unit(amb_id))
             cmd = p.get("command")
-            if cmd == "FOLLOW_ROUTE" and p.get("driver") == "DEVICE":
+            if cmd in ("FOLLOW_ROUTE", "ROUTE_UPDATED") and p.get("driver") == "DEVICE":
                 u.mission = None          # a real GPS device drives this unit
                 return
-            if cmd == "FOLLOW_ROUTE":
+            if cmd in ("FOLLOW_ROUTE", "ROUTE_UPDATED"):
                 segs = [Seg(s.get("road_id"), float(s["length_m"]), float(s["speed_kph"]), float(s.get("base_speed_kph", s["speed_kph"])),
                             [tuple(c) for c in s["coords"]]) for s in p["segments"] if s.get("coords")]
                 if not segs:  # zero-length route (already at the destination)
@@ -104,10 +104,20 @@ class AmbulanceSimulator:
                     segs = [Seg(None, 0.0, 1.0, 1.0, [dest, dest])]
                 if u.mission and u.mission.route_id == p["route_id"]:
                     return  # duplicate (retained) delivery
-                u.mission = Mission(p["route_id"], p.get("leg", ""), float(p.get("time_scale", 1.0)), segs)
-                u.lat, u.lon = segs[0].coords[0]
-                log.info(jmsg(event="ROUTE_RECEIVED", ambulance_id=amb_id, route_id=p["route_id"], leg=p.get("leg"),
-                              segments=len(segs), length_m=round(sum(s.length_m for s in segs))))
+                m = Mission(p["route_id"], p.get("leg", ""), float(p.get("time_scale", 1.0)), segs)
+                if cmd == "ROUTE_UPDATED" and u.lat is not None and u.mission is not None and not u.mission.arrived:
+                    # re-route of the current leg: continue from the CURRENT position (no teleport, no restart)
+                    k, pos, off = self.snap(segs, u.lat, u.lon)
+                    m.seg_idx, m.pos_in_seg, m.started = k, pos, True
+                    m.progress_m = sum(sg.length_m for sg in segs[:k]) + pos
+                    log.info(jmsg(event="ROUTE_UPDATED", ambulance_id=amb_id, route_id=p["route_id"],
+                                  replaces=p.get("replaces_route_id"), snapped_offset_m=round(off, 1),
+                                  start_segment=k, length_m=round(sum(sg.length_m for sg in segs))))
+                else:
+                    u.lat, u.lon = segs[0].coords[0]
+                    log.info(jmsg(event="ROUTE_RECEIVED", ambulance_id=amb_id, route_id=p["route_id"], leg=p.get("leg"),
+                                  segments=len(segs), length_m=round(sum(s.length_m for s in segs))))
+                u.mission = m
             elif cmd == "IDLE":
                 u.mission = None
                 u.speed_kph = 0.0
@@ -125,6 +135,23 @@ class AmbulanceSimulator:
             return 0.0
         limit = float(st.get("speed_limit_kph") or seg.base_speed_kph)
         return limit * CONGESTION_FACTORS.get(st.get("congestion_level", "FREE"), 1.0) * float(st.get("incident_multiplier", 1.0))
+
+    @staticmethod
+    def snap(segs: list[Seg], lat: float, lon: float, search: int = 12) -> tuple[int, float, float]:
+        """Closest point to (lat, lon) on the first `search` segments -> (segment index, metres into it, offset m)."""
+        import math
+        kx, ky = 111_320.0 * math.cos(math.radians(lat)), 110_540.0
+        best = (0, 0.0, float("inf"))
+        for k, sg in enumerate(segs[:search]):
+            (alat, alon), (blat, blon) = sg.coords[0], sg.coords[-1]
+            ax, ay, bx, by = (alon - lon) * kx, (alat - lat) * ky, (blon - lon) * kx, (blat - lat) * ky
+            dx, dy = bx - ax, by - ay
+            l2 = dx * dx + dy * dy
+            t = 0.0 if l2 == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / l2))
+            dist = math.hypot(ax + t * dx, ay + t * dy)
+            if dist < best[2]:
+                best = (k, t * sg.length_m, dist)
+        return best
 
     @staticmethod
     def point_on(seg: Seg, dist: float) -> tuple[float, float, float]:

@@ -90,8 +90,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         case "EMERGENCY_CREATED": case "EMERGENCY_STATUS_CHANGED": case "EMERGENCY_CLASSIFIED": case "EMERGENCY_PRIORITY_CHANGED":
           debounced("incidents");
           break;
-        case "DISPATCH_PENDING":
-          debounced("incidents");
+        case "DISPATCH_PENDING": case "RESOURCE_REALLOCATED": case "RESOURCE_ESCALATED": case "HUMAN_REVIEW_COMPLETED":
+          debounced("incidents"); debounced("routes");
           break;
         case "DISPATCH_CREATED": case "HOSPITAL_SELECTED": case "INCIDENT_COMPLETED":
           debounced("routes"); debounced("incidents");

@@ -17,7 +17,11 @@ export default function Traffic() {
   const [events, setEvents] = useState<any[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const canAct = getUser()?.role !== "VIEWER";
-  const loadEvents = () => api("/api/traffic/events?limit=40").then(setEvents).catch(() => undefined);
+  const [pred, setPred] = useState<any>(null);
+  const loadEvents = () => {
+    api("/api/traffic/events?limit=40").then(setEvents).catch(() => undefined);
+    api("/api/traffic/predictions?changed_only=true&limit=60").then(setPred).catch(() => undefined);
+  };
   useEffect(() => { loadEvents(); }, [roads]);
 
   const pick = async (lat: number, lon: number) => {
@@ -70,6 +74,23 @@ export default function Traffic() {
                 <td style={{ color: LEVEL_COLOR[r.congestion_level] }}>{r.congestion_level}{r.accident && " ⚠"}</td>
                 <td>{r.current_speed_kph.toFixed(0)}/{r.speed_limit_kph.toFixed(0)}</td>
               </tr>))}</tbody>
+          </table>
+        </div>
+        <h3>Predicted traffic (next {pred?.model?.horizon_min ?? "?"} min)</h3>
+        <div className="muted small" data-testid="traffic-model">model {pred?.model?.model_version ?? "—"} · {pred?.model?.method ?? "—"}
+          {pred?.model?.metrics?.accuracy_model != null && ` · hold-out accuracy ${(pred.model.metrics.accuracy_model * 100).toFixed(0)}% vs persistence ${(pred.model.metrics.accuracy_persistence * 100).toFixed(0)}%`}
+          {pred?.model?.metrics?.reason && ` · ${pred.model.metrics.reason}`}</div>
+        <div className="scroll">
+          <table className="table compact" data-testid="traffic-predictions">
+            <thead><tr><th>Road</th><th>Current</th><th>Predicted</th><th>Δ time</th><th>Conf.</th></tr></thead>
+            <tbody>{(pred?.predictions || []).map((p: any) => (
+              <tr key={p.road_id} className="clickable" onClick={() => pickById(p.road_id)}>
+                <td className="mono">{p.road_id}</td>
+                <td style={{ color: LEVEL_COLOR[p.current_level] }}>{p.current_level}</td>
+                <td style={{ color: LEVEL_COLOR[p.predicted_level] }}>{p.predicted_level}</td>
+                <td>{p.predicted_delay_s > 1e5 ? "closed" : `${p.predicted_delay_s >= 0 ? "+" : ""}${p.predicted_delay_s.toFixed(0)} s`}</td>
+                <td>{(p.confidence * 100).toFixed(0)}%</td></tr>))}
+              {!pred?.predictions?.length && <tr><td colSpan={5} className="muted">No road is predicted to change.</td></tr>}</tbody>
           </table>
         </div>
         <h3>Recent traffic events</h3>

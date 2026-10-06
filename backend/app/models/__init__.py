@@ -4,8 +4,10 @@ from app.models.entities import (  # noqa: F401
     Dispatch,
     EmergencyIncident,
     Hospital,
+    HospitalPrediction,
     IotMessage,
     ModelPrediction,
+    ResourceConflict,
     RoadCondition,
     RoadEdge,
     RoadNode,
@@ -14,5 +16,6 @@ from app.models.entities import (  # noqa: F401
     ServiceArea,
     SystemEvent,
     TrafficEvent,
+    TrafficPrediction,
     User,
 )

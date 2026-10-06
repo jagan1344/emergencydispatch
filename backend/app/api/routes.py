@@ -9,6 +9,7 @@ from app.models import Route, RouteSegment, User
 from app.routing.engine import NoRouteError
 from app.routing.eta import route_efficiency
 from app.schemas.schemas import RouteRequest
+from app.services.events import _jsonable
 from app.services.routes_service import ACTIVE, remaining_eta, save_route
 from app.services.state import require_router
 
@@ -28,6 +29,7 @@ def route_dict(r: Route, db: Session | None = None, with_segments: bool = False)
          "leg": r.leg, "engine": r.engine, "network_source": r.network_source, "distance_m": r.distance_m,
          "base_duration_s": r.base_duration_s, "adjusted_duration_s": r.adjusted_duration_s,
          "osrm_duration_s": r.osrm_duration_s, "shortest_distance_m": r.shortest_distance_m,
+         "predicted_duration_s": r.predicted_duration_s, "prediction_horizon_min": r.prediction_horizon_min,
          "route_efficiency": round(route_efficiency(r.shortest_distance_m, r.distance_m), 3) if r.shortest_distance_m else None,
          "traffic_delay_s": round(r.adjusted_duration_s - r.base_duration_s, 1), "active": r.active,
          "created_at": r.created_at, "superseded_at": r.superseded_at, "completed_at": r.completed_at,
@@ -42,7 +44,7 @@ def route_dict(r: Route, db: Session | None = None, with_segments: bool = False)
                           "base_speed_kph": s.base_speed_kph, "planned_speed_kph": round(s.planned_speed_kph, 1),
                           "cum_distance_m": round(s.cum_distance_m, 1)}
                          for s in db.scalars(select(RouteSegment).where(RouteSegment.route_id == r.id).order_by(RouteSegment.seq))]
-    return d
+    return _jsonable(d)    # old_eta_s of a reroute away from a blocked road is infinite; JSON has no Infinity
 
 
 @router.get("")

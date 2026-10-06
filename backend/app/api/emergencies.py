@@ -8,7 +8,7 @@ from app.api.deps import any_user, dispatcher
 from app.config import get_settings
 from app.database import get_db
 from app.models import Dispatch, EmergencyIncident, ModelPrediction, Route, SystemEvent, User
-from app.schemas.schemas import DispatchRequest, EmergencyCreate
+from app.schemas.schemas import DispatchRequest, EmergencyCreate, ReviewRequest
 from app.services.dispatch_service import NoAmbulanceAvailable, dispatch_incident, dispatcher_cycle, preview
 from app.services.incident_service import IncidentValidationError, create_incident, incident_dict
 from app.services.mission_service import cancel_incident
@@ -94,7 +94,8 @@ def detail(incident_id: str, db: Session, dispatch_error: str | None = None) -> 
     d["live_eta_s"] = round(remaining_eta(ar), 1) if ar and ar.incident_id == inc.id else None
     if dispatch_error:
         d["dispatch_error"] = dispatch_error
-    return d
+    from app.services.events import _jsonable
+    return _jsonable(d)                            # infinite ETAs (blocked roads) -> null
 
 
 @router.post("/{incident_id}/dispatch")
@@ -135,6 +136,53 @@ def cancel(incident_id: str, user: User = Depends(dispatcher), db: Session = Dep
             raise HTTPException(409, str(exc))
         db.commit()
     return detail(incident_id, db)
+
+
+@router.post("/{incident_id}/review")
+def review(incident_id: str, body: ReviewRequest, user: User = Depends(dispatcher), db: Session = Depends(get_db)):
+    """Human review of a (low-confidence) severity prediction: confirm or override, then release for dispatch."""
+    from app.services.incident_service import review_incident
+    with STATE.lock:
+        inc = _get(db, incident_id)
+        if inc.status in ("COMPLETED", "CANCELLED"):
+            raise HTTPException(409, f"incident already {inc.status}")
+        try:
+            review_incident(db, inc, user.username, body.severity)
+        except IncidentValidationError as exc:
+            raise HTTPException(422, str(exc))
+        db.commit()
+    if body.dispatch and inc.status == "WAITING":
+        try:
+            dispatcher_cycle()
+        except Exception:
+            pass
+    db.expire_all()
+    return detail(incident_id, db)
+
+
+@router.get("/{incident_id}/decision")
+def decision(incident_id: str, _: User = Depends(any_user), db: Session = Depends(get_db)):
+    """Every automated decision for this incident: confidence, dispatch explanation + counterfactuals, routes
+    (current vs predicted traffic), re-routes, hospital prediction/selection, resource conflicts, decision trace."""
+    from app.services.decision_service import build_decision
+    return build_decision(db, _get(db, incident_id))
+
+
+@router.get("/{incident_id}/alternatives")
+def alternatives(incident_id: str, ambulance_id: str | None = None, _: User = Depends(any_user),
+                 db: Session = Depends(get_db)):
+    """Counterfactuals: how every other candidate would have performed ("why not AMB-x?")."""
+    from app.services.decision_service import build_decision
+    d = build_decision(db, _get(db, incident_id))
+    if d["dispatch"] is None:
+        raise HTTPException(404, "incident has not been dispatched yet")
+    cfs = d["dispatch"]["explanation"]["counterfactuals"]
+    if ambulance_id is None:
+        return cfs
+    hit = next((c for c in cfs if c["ambulance_id"] == ambulance_id), None)
+    if hit is None:
+        raise HTTPException(404, f"{ambulance_id} was not a candidate for this incident")
+    return hit
 
 
 @router.post("/{incident_id}/reroute")

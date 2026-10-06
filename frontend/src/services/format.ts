@@ -35,6 +35,12 @@ export function describeEvent(e: { type: string; data: any }): string | null {
     case "AMBULANCE_STATUS_CHANGED": return `${d.ambulance_id}: ${d.old_status ?? "—"} → ${d.status}`;
     case "INCIDENT_COMPLETED": return `${d.reference} completed (response ${fmtMin(d.response_time_s)})`;
     case "DISPATCH_PENDING": return `${d.reference} waiting: ${d.reason}`;
+    case "CONFIDENCE_ASSESSED": return `ML ${d.predicted_severity ?? "n/a"} ${d.confidence != null ? Math.round(d.confidence * 100) + "%" : ""} → ${d.decision_mode}`;
+    case "RESOURCE_REALLOCATED": return `REALLOCATION ${d.ambulance_id}: ${d.previous_incident} → ${d.new_incident}`;
+    case "RESOURCE_ESCALATED": return `⚠ Reallocation of ${d.ambulance_id} needs approval (${d.to_incident})`;
+    case "RESOURCE_CONFLICT_DETECTED": return `Conflict over ${d.ambulance_id}: ${d.decision}`;
+    case "HUMAN_REVIEW_COMPLETED": return `Review by ${d.reviewed_by}: severity ${d.severity}`;
+    case "TRAFFIC_PREDICTION_UPDATED": return `Traffic forecast: ${d.roads} roads, ${d.predicted_changes} predicted to change (${d.method})`;
     default: return null;
   }
 }

@@ -82,3 +82,30 @@ def network(_: User = Depends(any_user)):
     if STATE.graph is None:
         raise HTTPException(503, STATE.graph_error or "road network not loaded")
     return STATE.graph.stats()
+
+
+@router.get("/predictions")
+def predictions(changed_only: bool = False, limit: int = 500, _: User = Depends(any_user), db: Session = Depends(get_db)):
+    """Latest stored traffic predictions (CURRENT vs PREDICTED level/speed/delay, confidence, model version)."""
+    from app.models import TrafficPrediction
+    from app.services.traffic_prediction import PREDICTOR
+    q = select(TrafficPrediction)
+    if changed_only:
+        q = q.where(TrafficPrediction.current_level != TrafficPrediction.predicted_level)
+    rows = db.scalars(q.order_by(TrafficPrediction.predicted_delay_s.desc()).limit(min(limit, 5000))).all()
+    return {"model": PREDICTOR.status(), "predictions": [
+        {"road_id": p.road_id, "horizon_min": p.horizon_min, "prediction_time": p.prediction_time,
+         "current_level": p.current_level, "predicted_level": p.predicted_level,
+         "current_speed_kph": p.current_speed_kph, "predicted_speed_kph": p.predicted_speed_kph,
+         "predicted_delay_s": p.predicted_delay_s, "confidence": p.confidence, "method": p.method,
+         "model_version": p.model_version} for p in rows]}
+
+
+@router.post("/predictions/refresh")
+def refresh_predictions(retrain: bool = False, _: User = Depends(dispatcher)):
+    """Run a prediction cycle now (optionally retraining the model first)."""
+    from app.services.traffic_prediction import PREDICTOR
+    if retrain:
+        PREDICTOR.ensure_model(force=True)
+    rows = PREDICTOR.predict()
+    return {"predicted_roads": len(rows), "model": PREDICTOR.status()}

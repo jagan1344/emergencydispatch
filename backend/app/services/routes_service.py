@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import math
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 
@@ -36,6 +37,9 @@ class ActiveRoute:
     planned_eta_s: float
     progress_m: float = 0.0
     considered_roads: set[str] = field(default_factory=set)
+    last_reroute_at: float | None = None                 # wall time.time() of the last re-route
+    abandoned: list[frozenset] = field(default_factory=list)   # road sets of recently abandoned routes
+    reroutes: int = 0
 
     @property
     def total_m(self) -> float:
@@ -80,7 +84,10 @@ def save_route(db: Session, rr: RouteResult, *, leg: str, origin: tuple[float, f
         dest_lat=dest[0], dest_lon=dest[1], distance_m=rr.distance_m, base_duration_s=rr.base_duration_s,
         adjusted_duration_s=rr.adjusted_duration_s, osrm_duration_s=rr.osrm_duration_s,
         shortest_distance_m=rr.shortest_distance_m, geometry=linestring_wkt(rr.coords or [origin, dest]),
-        alternatives=rr.alternatives, active=leg != "PREVIEW", reroute_of=reroute_of, reroute_reason=reroute_reason,
+        alternatives=rr.alternatives, active=leg != "PREVIEW",
+        predicted_duration_s=(rr.predicted_duration_s if rr.predicted_duration_s is not None
+                              and math.isfinite(rr.predicted_duration_s) else None),
+        prediction_horizon_min=rr.prediction_horizon_min, reroute_of=reroute_of, reroute_reason=reroute_reason,
         old_eta_s=None if old_eta_s is None or math.isinf(old_eta_s) else old_eta_s,
         time_saved_s=(None if old_eta_s is None or math.isinf(old_eta_s)
                       else time_saved_s(old_eta_s, rr.adjusted_duration_s)),
@@ -98,10 +105,13 @@ def save_route(db: Session, rr: RouteResult, *, leg: str, origin: tuple[float, f
     return route
 
 
-def route_command(route: Route, rr: RouteResult, incident_id, leg: str) -> dict:
-    """FOLLOW_ROUTE command sent to the ambulance simulator over MQTT."""
+def route_command(route: Route, rr: RouteResult, incident_id, leg: str, update: bool = False) -> dict:
+    """FOLLOW_ROUTE (new mission leg) or ROUTE_UPDATED (re-route of the current leg: the simulator continues from
+    its current GPS position on the new route instead of restarting at the route origin) over MQTT."""
     return {
-        "command": "FOLLOW_ROUTE", "route_id": str(route.id), "incident_id": str(incident_id) if incident_id else None,
+        "command": "ROUTE_UPDATED" if update else "FOLLOW_ROUTE", "route_id": str(route.id),
+        "replaces_route_id": str(route.reroute_of) if update and route.reroute_of else None,
+        "geometry": [[round(a, 6), round(b, 6)] for a, b in rr.coords], "incident_id": str(incident_id) if incident_id else None,
         "leg": leg, "time_scale": get_settings().sim_time_scale,
         "origin": [route.origin_lat, route.origin_lon], "dest": [route.dest_lat, route.dest_lon],
         "segments": [{"road_id": s.road_id, "length_m": round(s.length_m, 2), "speed_kph": round(s.adj_speed_kph, 2),
@@ -112,10 +122,14 @@ def route_command(route: Route, rr: RouteResult, incident_id, leg: str) -> dict:
 
 
 def activate(db: Session, route: Route, rr: RouteResult, ambulance_id: str, incident_id, leg: str,
-             dest: tuple[float, float]) -> None:
+             dest: tuple[float, float], previous: "ActiveRoute | None" = None) -> None:
     """Register the route as the ambulance's live route and send it to the simulator after commit."""
     ar = ActiveRoute(route.id, ambulance_id, incident_id, leg, list(rr.segments), dest, rr.adjusted_duration_s)
-    cmd = route_command(route, rr, incident_id, leg)
+    if previous is not None:          # keep re-route history for cooldown / oscillation control
+        ar.last_reroute_at = time.time()
+        ar.reroutes = previous.reroutes + 1
+        ar.abandoned = (previous.abandoned + [frozenset(s.road_id for s in previous.segments if s.road_id)])[-5:]
+    cmd = route_command(route, rr, incident_id, leg, update=previous is not None)
     from app.models import Ambulance
     amb = db.get(Ambulance, ambulance_id)
     cmd["driver"] = amb.gps_source if amb is not None else "SIMULATED"   # simulator ignores DEVICE units
@@ -124,6 +138,17 @@ def activate(db: Session, route: Route, rr: RouteResult, ambulance_id: str, inci
         ACTIVE.set(ar)
         publish(f"ambulance/{ambulance_id}/command", cmd, retain=True)
     after_commit(db, _go)
+
+
+def emit_route_selected(db: Session, rr: RouteResult, leg: str, incident_id, ambulance_id: str, route_id) -> None:
+    eta = rr.predicted_duration_s
+    emit(db, "ROUTE_SELECTED", {
+        "incident_id": str(incident_id) if incident_id else None, "ambulance_id": ambulance_id, "route_id": str(route_id),
+        "leg": leg, "engine": rr.engine, "candidates": len(rr.alternatives), "alternatives": rr.alternatives,
+        "eta_s": round(rr.adjusted_duration_s, 1),
+        "predicted_eta_s": round(eta, 1) if eta is not None and math.isfinite(eta) else None,
+        "horizon_min": rr.prediction_horizon_min, "distance_m": round(rr.distance_m, 1)},
+        incident_id=incident_id, ambulance_id=ambulance_id)
 
 
 def complete_route(db: Session, ambulance_id: str) -> None:
@@ -187,6 +212,25 @@ def remaining_eta(ar: ActiveRoute, current: bool = True) -> float:
     return t_first * frac + sum(s.adj_time_s for s in segs[1:])
 
 
+def predicted_remaining_eta(ar: ActiveRoute) -> float | None:
+    """Remaining ETA under predicted traffic (time-dependent blend, see routing.engine.predicted_duration)."""
+    st = get_settings()
+    if not st.traffic_prediction_enabled:
+        return None
+    from app.routing.engine import predicted_duration
+    router = require_router()
+    rem, frac = router.remaining(ar.segments, ar.progress_m)
+    if not rem:
+        return 0.0
+    return predicted_duration(router.recost(rem), st.traffic_prediction_horizon_min * 60, first_fraction=frac)
+
+
+def decision_eta(ar: ActiveRoute) -> float:
+    """ETA metric used for re-route decisions: predicted if enabled & finite, else current."""
+    p = predicted_remaining_eta(ar)
+    return p if p is not None and math.isfinite(p) else remaining_eta(ar)
+
+
 # ------------------------------------------------------------------------------------------ re-routing
 def check_routes(affected_roads: set[str] | None = None, accident_roads: set[str] | None = None,
                  force_ambulance: str | None = None) -> list[dict]:
@@ -216,6 +260,8 @@ def check_routes(affected_roads: set[str] | None = None, accident_roads: set[str
         current = remaining_eta(ar, current=True)
         planned = remaining_eta(ar, current=False)
         deg = degradation(planned, current)
+        predicted = predicted_remaining_eta(ar)
+        pdeg = degradation(planned, predicted) if predicted is not None else 0.0
         blocked_ahead = [r for r in ahead_roads if g.road_state(r) and g.road_state(r).blocked]
         severe_ahead = [r for r in ahead_roads if g.road_state(r) and g.road_state(r).level == "SEVERE"
                         and r not in ar.considered_roads]
@@ -228,6 +274,10 @@ def check_routes(affected_roads: set[str] | None = None, accident_roads: set[str
             reason = f"ETA increased by {deg * 100:.0f}% (> {settings.reroute_threshold * 100:.0f}%)"
         elif severe_ahead:
             reason = f"severe congestion on current route ({', '.join(sorted(severe_ahead)[:3])})"
+        elif pdeg > settings.reroute_threshold and "predicted" not in ar.considered_roads:
+            reason = (f"traffic predicted to worsen on current route: ETA +{pdeg * 100:.0f}% within "
+                      f"{settings.traffic_prediction_horizon_min:.0f} min")
+            ar.considered_roads.add("predicted")
         elif force_ambulance:
             reason = "manual re-route request"
         if not reason:
@@ -236,12 +286,47 @@ def check_routes(affected_roads: set[str] | None = None, accident_roads: set[str
         with STATE.lock, session_scope() as db:
             if ACTIVE.get(ar.ambulance_id) is not ar:   # mission moved on meanwhile
                 continue
-            res = _reroute(db, ar, reason, current)
+            emit(db, "ROUTE_DEGRADATION_DETECTED", {
+                "ambulance_id": ar.ambulance_id, "incident_id": str(ar.incident_id) if ar.incident_id else None,
+                "route_id": str(ar.route_id), "reason": reason, "planned_eta_s": round(planned, 1),
+                "current_eta_s": None if math.isinf(current) else round(current, 1),
+                "predicted_eta_s": None if predicted is None or math.isinf(predicted) else round(predicted, 1)},
+                incident_id=ar.incident_id, ambulance_id=ar.ambulance_id)
+            log_event(log, "ROUTE_DEGRADATION_DETECTED", ambulance_id=ar.ambulance_id, route_id=str(ar.route_id),
+                      incident_id=str(ar.incident_id), reason=reason)
+            res = _reroute(db, ar, reason, decision_eta(ar) if not blocked_ahead else math.inf,
+                           forced=bool(blocked_ahead) or bool(force_ambulance))
             results.append(res)
     return results
 
 
-def _reroute(db: Session, ar: ActiveRoute, reason: str, old_eta: float) -> dict:
+def reroute_decision(old_eta: float, new_eta: float, *, since_last_s: float | None, similarity: float,
+                     forced: bool, st=None) -> tuple[bool, str]:
+    """Pure re-route rule (unit-tested). Returns (accept, explanation).
+      accept iff  new_eta + max(MIN_ETA_SAVINGS, old_eta * MIN_IMPROVEMENT%) <= old_eta
+              and (no re-route within COOLDOWN, or the current route is blocked)
+              and the new route is not (almost) a route we abandoned recently (oscillation), unless blocked."""
+    st = st or get_settings()
+    if math.isinf(new_eta):
+        return False, "alternative is not drivable"
+    if math.isinf(old_eta):
+        return True, "current route is blocked: any drivable alternative is accepted"
+    margin = max(st.reroute_min_eta_savings_s, old_eta * st.reroute_min_improvement_percent / 100)
+    if new_eta + margin > old_eta:
+        return False, (f"saving {old_eta - new_eta:.0f} s is below the required margin {margin:.0f} s "
+                       f"(min {st.reroute_min_eta_savings_s:.0f} s / {st.reroute_min_improvement_percent:.0f}%)")
+    if not forced and since_last_s is not None and since_last_s < st.reroute_cooldown_s:
+        return False, f"cooldown: last re-route {since_last_s:.0f} s ago (< {st.reroute_cooldown_s:.0f} s)"
+    if not forced and similarity >= st.reroute_oscillation_similarity:
+        return False, (f"oscillation guard: alternative is {similarity:.0%} identical to a route abandoned recently")
+    return True, f"saves {old_eta - new_eta:.0f} s (margin {margin:.0f} s)"
+
+
+def _similarity(a: frozenset, b: frozenset) -> float:
+    return len(a & b) / len(a | b) if a and b else 0.0
+
+
+def _reroute(db: Session, ar: ActiveRoute, reason: str, old_eta: float, forced: bool = False) -> dict:
     router = require_router()
     g = STATE.graph
     k, frac, point = position_on_route(ar, ar.progress_m)
@@ -268,17 +353,26 @@ def _reroute(db: Session, ar: ActiveRoute, reason: str, old_eta: float) -> dict:
         emit(db, "ROUTE_CHECK", {**payload, "decision": "NO_ALTERNATIVE", "detail": str(exc)},
              incident_id=ar.incident_id, ambulance_id=ar.ambulance_id)
         return {**payload, "decision": "NO_ALTERNATIVE"}
-    new_eta = new.adjusted_duration_s
+    new_eta = new.eta_s
     same_path = [s.road_id for s in new.segments if s.road_id] == [
         s.road_id for s in router.remaining(ar.segments, ar.progress_m)[0] if s.road_id]
-    min_gain = max(10.0, 0.05 * old_eta) if math.isfinite(old_eta) else 0.0
-    if same_path or (math.isfinite(old_eta) and new_eta > old_eta - min_gain):
+    new_roads = frozenset(s.road_id for s in new.segments if s.road_id)
+    sim = max((_similarity(new_roads, old) for old in ar.abandoned), default=0.0)
+    since = None if ar.last_reroute_at is None else (time.time() - ar.last_reroute_at) * get_settings().sim_time_scale
+    ok, why = (False, "best alternative is the current route") if same_path else \
+        reroute_decision(old_eta, new_eta, since_last_s=since, similarity=sim, forced=forced)
+    log_event(log, "REROUTE_EVALUATED", ambulance_id=ar.ambulance_id, route_id=str(ar.route_id),
+              incident_id=str(ar.incident_id), old_eta_s=None if math.isinf(old_eta) else round(old_eta, 1),
+              alt_eta_s=round(new_eta, 1) if math.isfinite(new_eta) else None, accept=ok, rule=why)
+    if not ok:
         # keep current route; accept the new conditions as the baseline so we do not re-trigger every tick
         ar.segments = router.recost(ar.segments)
-        emit(db, "ROUTE_CHECK", {**payload, "decision": "KEEP_CURRENT", "best_alternative_eta_s": round(new_eta, 1)},
+        emit(db, "ROUTE_CHECK", {**payload, "decision": "KEEP_CURRENT", "detail": why,
+                                 "best_alternative_eta_s": round(new_eta, 1) if math.isfinite(new_eta) else None},
              incident_id=ar.incident_id, ambulance_id=ar.ambulance_id)
-        log_event(log, "ROUTE_CHECK_KEEP", ambulance_id=ar.ambulance_id, reason=reason, old_eta_s=old_eta, alt_eta_s=new_eta)
-        return {**payload, "decision": "KEEP_CURRENT", "new_eta_s": new_eta}
+        return {**payload, "decision": "KEEP_CURRENT", "new_eta_s": new_eta, "rule": why}
+    log_event(log, "REROUTE_TRIGGERED", ambulance_id=ar.ambulance_id, route_id=str(ar.route_id),
+              incident_id=str(ar.incident_id), reason=reason, rule=why)
 
     return _apply_new_route(db, ar, new, point, reason, old_eta, payload)
 
@@ -286,7 +380,7 @@ def _reroute(db: Session, ar: ActiveRoute, reason: str, old_eta: float) -> dict:
 def _apply_new_route(db: Session, ar: ActiveRoute, new: RouteResult, point: tuple[float, float], reason: str,
                      old_eta: float, payload: dict) -> dict:
     from app.models import Route as RouteModel
-    new_eta = new.adjusted_duration_s
+    new_eta = new.eta_s
     old = db.get(RouteModel, ar.route_id)
     if old is not None:
         old.active = False
@@ -299,7 +393,9 @@ def _apply_new_route(db: Session, ar: ActiveRoute, new: RouteResult, point: tupl
             "time_saved_s": saved, "engine": new.engine, "distance_m": round(new.distance_m, 1),
             "geometry": [[round(a, 6), round(b, 6)] for a, b in new.coords]}
     emit(db, "ROUTE_RECALCULATED", data, incident_id=ar.incident_id, ambulance_id=ar.ambulance_id)
-    activate(db, route, new, ar.ambulance_id, ar.incident_id, ar.leg, ar.dest)
+    activate(db, route, new, ar.ambulance_id, ar.incident_id, ar.leg, ar.dest, previous=ar)
+    log_event(log, "ROUTE_UPDATED", ambulance_id=ar.ambulance_id, route_id=str(route.id),
+              replaces=str(ar.route_id), incident_id=str(ar.incident_id))
     from app.services import metrics
     metrics.REROUTES.inc()
     log_event(log, "ROUTE_RECALCULATED", ambulance_id=ar.ambulance_id, reason=reason,

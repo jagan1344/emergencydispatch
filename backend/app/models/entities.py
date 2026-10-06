@@ -133,6 +133,12 @@ class EmergencyIncident(Base):
     destination_hospital: Mapped[str | None] = mapped_column(String(16), ForeignKey("hospitals.id"))
     status: Mapped[str] = mapped_column(String(16), default="CREATED")
     dispatch_note: Mapped[str | None] = mapped_column(String(500))
+    class_probabilities: Mapped[dict | None] = mapped_column(JSONB)
+    confidence_level: Mapped[str | None] = mapped_column(String(16))
+    decision_mode: Mapped[str | None] = mapped_column(String(24))
+    decision_reason: Mapped[str | None] = mapped_column(String(500))
+    reviewed_by: Mapped[str | None] = mapped_column(String(64))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     arrived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     loaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -198,6 +204,8 @@ class Dispatch(Base):
     hospital_id: Mapped[str | None] = mapped_column(String(16), ForeignKey("hospitals.id"))
     hospital_candidates: Mapped[list | None] = mapped_column(JSONB)
     hospital_explanation: Mapped[str | None] = mapped_column(Text)
+    counterfactuals: Mapped[list | None] = mapped_column(JSONB)
+    decision_mode: Mapped[str | None] = mapped_column(String(24))
     status: Mapped[str] = mapped_column(String(16), default="ACTIVE")
 
 
@@ -218,6 +226,8 @@ class Route(Base):
     base_duration_s: Mapped[float] = mapped_column(Float)
     adjusted_duration_s: Mapped[float] = mapped_column(Float)
     osrm_duration_s: Mapped[float | None] = mapped_column(Float)
+    predicted_duration_s: Mapped[float | None] = mapped_column(Float)
+    prediction_horizon_min: Mapped[float | None] = mapped_column(Float)
     shortest_distance_m: Mapped[float | None] = mapped_column(Float)
     geometry = mapped_column(Geography("LINESTRING", srid=4326))
     alternatives: Mapped[list | None] = mapped_column(JSONB)
@@ -291,3 +301,56 @@ class SystemEvent(Base):
     incident_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     ambulance_id: Mapped[str | None] = mapped_column(String(16))
     payload: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
+class TrafficPrediction(Base):
+    __tablename__ = "traffic_predictions"
+    road_id: Mapped[str] = mapped_column(String(32), ForeignKey("road_conditions.road_id"), primary_key=True)
+    horizon_min: Mapped[float] = mapped_column(Float, primary_key=True)
+    prediction_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    current_level: Mapped[str] = mapped_column(String(16))
+    predicted_level: Mapped[str] = mapped_column(String(16))
+    current_speed_kph: Mapped[float] = mapped_column(Float)
+    predicted_speed_kph: Mapped[float] = mapped_column(Float)
+    predicted_delay_s: Mapped[float] = mapped_column(Float)
+    confidence: Mapped[float] = mapped_column(Float)
+    method: Mapped[str] = mapped_column(String(24))
+    model_version: Mapped[str] = mapped_column(String(64))
+
+
+class HospitalPrediction(Base):
+    __tablename__ = "hospital_predictions"
+    hospital_id: Mapped[str] = mapped_column(String(16), ForeignKey("hospitals.id"), primary_key=True)
+    horizon_min: Mapped[float] = mapped_column(Float, primary_key=True)
+    prediction_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    current_load: Mapped[int] = mapped_column(Integer)
+    capacity: Mapped[int] = mapped_column(Integer)
+    incoming_ambulances: Mapped[int] = mapped_column(Integer)
+    predicted_load: Mapped[float] = mapped_column(Float)
+    predicted_load_pct: Mapped[float] = mapped_column(Float)
+    expected_wait_min: Mapped[float] = mapped_column(Float)
+    arrival_rate_per_h: Mapped[float] = mapped_column(Float)
+    mean_stay_min: Mapped[float] = mapped_column(Float)
+    method: Mapped[str] = mapped_column(String(24))
+    data_points: Mapped[int] = mapped_column(Integer)
+    confidence: Mapped[str] = mapped_column(String(16))
+    model_version: Mapped[str] = mapped_column(String(64))
+
+
+class ResourceConflict(Base):
+    __tablename__ = "resource_conflicts"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    ambulance_id: Mapped[str | None] = mapped_column(String(16), ForeignKey("ambulances.id"))
+    from_incident_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("emergency_incidents.id"))
+    to_incident_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("emergency_incidents.id"))
+    kind: Mapped[str] = mapped_column(String(24))
+    decision: Mapped[str] = mapped_column(String(24))
+    reason: Mapped[str] = mapped_column(Text)
+    from_eta_before_s: Mapped[float | None] = mapped_column(Float)
+    from_eta_after_s: Mapped[float | None] = mapped_column(Float)
+    to_eta_s: Mapped[float | None] = mapped_column(Float)
+    alternative_eta_s: Mapped[float | None] = mapped_column(Float)
+    details: Mapped[dict] = mapped_column(JSONB, default=dict)
+    resolved_by: Mapped[str | None] = mapped_column(String(64))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -99,6 +99,11 @@ def _trigger_route_check(roads: set[str], accident_roads: set[str]) -> None:
     from app.services.routes_service import check_routes
 
     def _run():
+        try:   # re-predict the changed road first so the route check sees its updated forecast
+            from app.services.traffic_prediction import PREDICTOR
+            PREDICTOR.predict(set(roads))
+        except Exception:
+            log.exception("traffic prediction update failed")
         try:
             check_routes(affected_roads=roads, accident_roads=accident_roads | (roads & ACCIDENT_ROADS))
         except Exception:

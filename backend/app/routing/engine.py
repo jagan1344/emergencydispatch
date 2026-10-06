@@ -39,6 +39,7 @@ class Segment:
     base_speed_kph: float
     adj_speed_kph: float          # 0 when blocked
     coords: list[tuple[float, float]]  # (lat, lon) start..end
+    pred_speed_kph: float | None = None   # predicted speed H minutes ahead (None = same as current)
 
     @property
     def base_time_s(self) -> float:
@@ -49,6 +50,33 @@ class Segment:
         if self.length_m == 0:
             return 0.0
         return self.length_m / (self.adj_speed_kph / 3.6) if self.adj_speed_kph > 0 else math.inf
+
+    @property
+    def pred_time_s(self) -> float:
+        spd = self.adj_speed_kph if self.pred_speed_kph is None else self.pred_speed_kph
+        if self.length_m == 0:
+            return 0.0
+        return self.length_m / (spd / 3.6) if spd > 0 else math.inf
+
+
+def predicted_duration(segments: list["Segment"], horizon_s: float, first_fraction: float = 1.0) -> float:
+    """Time-dependent ETA: a segment entered after t seconds is costed with a blend of current and predicted
+    traversal time, weight w = min(1, t / horizon). Short trips are dominated by current traffic, long ones by
+    the forecast. (horizon in simulated seconds)"""
+    t = 0.0
+    for k, s in enumerate(segments):
+        frac = first_fraction if k == 0 else 1.0
+        cur, prd = s.adj_time_s * frac, s.pred_time_s * frac
+        if math.isinf(cur) and k == 0:            # already on a closed road: allowed to leave at base speed
+            cur = s.base_time_s * frac
+        w = min(1.0, t / horizon_s) if horizon_s > 0 else 1.0
+        if math.isinf(prd) and w > 0 and not math.isinf(cur):
+            prd = math.inf
+        step = cur if w == 0 else (math.inf if (math.isinf(prd) or math.isinf(cur)) else (1 - w) * cur + w * prd)
+        t += step
+        if math.isinf(t):
+            return math.inf
+    return t
 
 
 @dataclass
@@ -64,6 +92,8 @@ class RouteResult:
     origin_snap_m: float = 0.0
     dest_snap_m: float = 0.0
     alternatives: list[dict] = field(default_factory=list)
+    predicted_duration_s: float | None = None
+    prediction_horizon_min: float | None = None
     through_closure: list[str] = field(default_factory=list)   # closed roads used as last resort
 
     @property
@@ -80,6 +110,12 @@ class RouteResult:
         return math.isfinite(self.adjusted_duration_s)
 
     @property
+    def eta_s(self) -> float:
+        """ETA used for decisions: traffic-predicted ETA when available and finite, else current-traffic ETA."""
+        p = self.predicted_duration_s
+        return p if p is not None and math.isfinite(p) else self.adjusted_duration_s
+
+    @property
     def traffic_delay_s(self) -> float:
         return max(0.0, self.adjusted_duration_s - self.base_duration_s) if self.feasible else math.inf
 
@@ -91,6 +127,9 @@ class RouteResult:
                 "base_duration_s": round(float(self.base_duration_s), 1),
                 "adjusted_duration_s": round(float(self.adjusted_duration_s), 1) if self.feasible else None,
                 "osrm_duration_s": round(self.osrm_duration_s, 1) if self.osrm_duration_s else None,
+                "predicted_duration_s": (round(float(self.predicted_duration_s), 1)
+                                         if self.predicted_duration_s is not None and math.isfinite(self.predicted_duration_s)
+                                         else None),
                 "feasible": self.feasible, "through_closure": self.through_closure}
 
 
@@ -115,6 +154,7 @@ class RoutingEngine:
             length_m=float(g.e_len[e]), base_speed_kph=float(g.road_limit_kph[r]),
             adj_speed_kph=g.road_speed_mps(r) * 3.6,
             coords=[(float(g.lat[u]), float(g.lon[u])), (float(g.lat[v]), float(g.lon[v]))],
+            pred_speed_kph=g.road_pred_speed_mps(r) * 3.6,
         )
 
     @staticmethod
@@ -132,7 +172,7 @@ class RoutingEngine:
             if s.road_id and s.road_id in g.road_idx:
                 r = g.road_idx[s.road_id]
                 s = Segment(s.road_id, s.from_node, s.to_node, s.length_m, s.base_speed_kph,
-                            g.road_speed_mps(r) * 3.6, s.coords)
+                            g.road_speed_mps(r) * 3.6, s.coords, g.road_pred_speed_mps(r) * 3.6)
             out.append(s)
         return out
 
@@ -142,6 +182,12 @@ class RoutingEngine:
         if not path:
             return None
         return [self._edge_segment(e) for e in self.graph.path_edges(path)]
+
+    @staticmethod
+    def _prediction_settings() -> tuple[bool, float]:
+        from app.config import get_settings
+        st = get_settings()
+        return st.traffic_prediction_enabled, st.traffic_prediction_horizon_min
 
     def _closure_candidate(self, o_idx: int, d_idx: int) -> list[Segment] | None:
         from app.routing.graph import CLOSURE_SPEED_MPS
@@ -220,6 +266,11 @@ class RoutingEngine:
             graph_core = self._graph_candidate(o_idx, d_idx)
             if graph_core is not None:
                 candidates.append(("graph", graph_core, None))
+            use_pred = self._prediction_settings()[0] and g.has_predictions()
+            if use_pred:   # route planned on predicted traffic (avoids roads forecast to jam)
+                path, _ = g.shortest_path(o_idx, d_idx, "pred")
+                if path:
+                    candidates.append(("graph-predicted", [self._edge_segment(e) for e in g.path_edges(path)], None))
             if origin_node is None:
                 for segs, osrm_dur in self._osrm_candidates(origin, dest):
                     candidates.append(("osrm", segs, osrm_dur))
@@ -239,6 +290,11 @@ class RoutingEngine:
                 dist, base, adj = _totals(segs)
                 results.append(RouteResult(engine, g.source, segs, dist, base, adj, osrm_dur,
                                            origin_snap_m=o_snap, dest_snap_m=d_snap))
+            enabled, horizon_min = self._prediction_settings()
+            for r in results:
+                if enabled:
+                    r.predicted_duration_s = predicted_duration(r.segments, horizon_min * 60)
+                    r.prediction_horizon_min = horizon_min
             feasible = [r for r in results if r.feasible]
             if not feasible:
                 # every open route is cut by closures: pass the closure at walking pace instead of stranding
@@ -253,7 +309,7 @@ class RoutingEngine:
                 rr.through_closure = sorted({s.road_id for s in closed if s.road_id and g.road_state(s.road_id).blocked})
                 results.append(rr)
                 feasible = [rr]
-            best = min(feasible, key=lambda r: (r.adjusted_duration_s, r.distance_m))
+            best = min(feasible, key=lambda r: (r.eta_s, r.distance_m))
             best.alternatives = [dict(r.summary(), selected=r is best) for r in results]
             if compute_shortest:
                 path, length = g.shortest_path(o_idx, d_idx, "length")

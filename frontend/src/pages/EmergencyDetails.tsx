@@ -6,20 +6,21 @@ import OpsMap from "../map/OpsMap";
 import { api, getUser } from "../services/api";
 import { fmtKm, fmtMin, fmtTime, pct } from "../services/format";
 import { IncidentDetail } from "../types";
+import { AIDecisionPanel, AmbulanceDecisionPanel, ConflictPanel, DecisionTrace, HospitalDecisionPanel, ReroutePanel, TrafficPanel } from "../components/DecisionPanels";
 
-const COMP_LABEL: Record<string, string> = { eta: "ETA", capability: "Capability mismatch", traffic: "Traffic delay",
-  workload: "Workload", fuel: "Fuel", distance: "Distance", load: "Capacity load" };
-const WEIGHTS: Record<string, number> = { eta: 0.4, capability: 0.2, traffic: 0.15, workload: 0.1, fuel: 0.1, distance: 0.05 };
-const H_WEIGHTS: Record<string, number> = { eta: 0.45, capability: 0.25, load: 0.15, traffic: 0.15 };
 
 export default function EmergencyDetails() {
   const { id } = useParams();
   const { subscribe, ambulances, health } = useLive();
   const [d, setD] = useState<IncidentDetail | null>(null);
+  const [dec, setDec] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const canAct = getUser()?.role !== "VIEWER";
-  const load = useCallback(() => api<IncidentDetail>(`/api/emergencies/${id}`).then(setD).catch((e) => setError(e.message)), [id]);
+  const load = useCallback(() => Promise.all([
+    api<IncidentDetail>(`/api/emergencies/${id}`).then(setD),
+    api(`/api/emergencies/${id}/decision`).then(setDec),
+  ]).catch((e) => setError(e.message)), [id]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => subscribe((e) => {
     const iid = e.data?.incident_id;
@@ -30,7 +31,17 @@ export default function EmergencyDetails() {
     try { await api(`/api/emergencies/${id}/${path}`, { method: "POST" }); await load(); }
     catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
-  if (!d) return <div className="page"><ErrorNote error={error} />Loading…</div>;
+  const review = async (severity?: string) => {
+    setBusy(true); setError(null);
+    try { await api(`/api/emergencies/${id}/review`, { method: "POST", body: { severity: severity ?? null } }); await load(); }
+    catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  };
+  const conflictAct = async (cid: string, action: string) => {
+    setError(null);
+    try { await api(`/api/dispatch/conflicts/${cid}/${action}`, { method: "POST" }); await load(); }
+    catch (e: any) { setError(e.message); }
+  };
+  if (!d || !dec) return <div className="page"><ErrorNote error={error} />Loading…</div>;
   const amb = d.assigned_ambulance ? ambulances[d.assigned_ambulance] : undefined;
   const liveEta = amb?.eta_remaining_s ?? d.live_eta_s;
   const active = d.routes.find((r) => r.active);
@@ -91,55 +102,31 @@ export default function EmergencyDetails() {
           <OpsMap height="340px" focus={[d.latitude, d.longitude]} highlightIncident={d.id}
             extraRoutes={history.map((r) => ({ geometry: r.geometry, color: "#8b949e", dashed: true, label: `superseded route (${r.leg})` }))} />
         </Panel>
-        {d.dispatch && (
-          <Panel title={`Why was ${d.dispatch.ambulance_id} selected?`} className="wide">
-            <pre className="explain" data-testid="dispatch-explanation">{d.dispatch.explanation}</pre>
-            <div className="muted small">Method {d.dispatch.method} · decision {d.dispatch.decision_ms?.toFixed(1)} ms · DispatchScore = 0.40·ETA + 0.20·Capability + 0.15·Traffic + 0.10·Workload + 0.10·Fuel + 0.05·Distance (lower is better)</div>
-            <table className="table" data-testid="candidates">
-              <thead><tr><th>Ambulance</th><th>Equip.</th><th>ETA</th><th>Distance</th><th>Traffic delay</th>
-                {Object.keys(WEIGHTS).map((k) => <th key={k}>{COMP_LABEL[k]}</th>)}<th>Score</th></tr></thead>
-              <tbody>{d.dispatch.candidates.map((c) => (
-                <tr key={c.ambulance_id} className={c.ambulance_id === d.dispatch!.ambulance_id ? "selected" : !c.suitable ? "dim" : ""}>
-                  <td>{c.ambulance_id}{c.ambulance_id === d.dispatch!.ambulance_id && " ✓"}</td>
-                  <td>{c.equipment_level}{!c.suitable && <div className="muted small">unsuitable</div>}</td>
-                  <td>{fmtMin(c.eta_s)}</td><td>{fmtKm(c.distance_m)}</td><td>{c.traffic_delay_s.toFixed(0)} s</td>
-                  {Object.keys(WEIGHTS).map((k) => <td key={k} title={`weighted ${(WEIGHTS[k] * c.components[k]).toFixed(3)}`}>{c.components[k].toFixed(2)}</td>)}
-                  <td><b>{c.score.toFixed(3)}</b></td>
-                </tr>))}</tbody>
-            </table>
-          </Panel>
-        )}
-        {d.dispatch?.hospital_candidates && (
-          <Panel title="Hospital selection" className="wide">
-            <p data-testid="hospital-explanation">{d.dispatch.hospital_explanation}</p>
-            <table className="table">
-              <thead><tr><th>Hospital</th><th>ETA</th><th>Distance</th><th>Missing</th>{Object.keys(H_WEIGHTS).map((k) => <th key={k}>{COMP_LABEL[k]}</th>)}<th>Score</th></tr></thead>
-              <tbody>{d.dispatch.hospital_candidates.map((h) => (
-                <tr key={h.hospital_id} className={h.hospital_id === d.dispatch!.hospital_id ? "selected" : ""}>
-                  <td>{h.name}</td><td>{fmtMin(h.eta_s)}</td><td>{fmtKm(h.distance_m)}</td>
-                  <td>{h.missing_capabilities.join(", ") || "—"}{h.full && " (full)"}</td>
-                  {Object.keys(H_WEIGHTS).map((k) => <td key={k}>{h.components[k].toFixed(2)}</td>)}<td><b>{h.score.toFixed(3)}</b></td>
-                </tr>))}</tbody>
-            </table>
-          </Panel>
-        )}
+        <AIDecisionPanel dec={dec} canAct={canAct} onReview={review} />
+        <TrafficPanel dec={dec} />
+        <ConflictPanel dec={dec} canAct={canAct} onAct={conflictAct} />
+        {d.dispatch && <AmbulanceDecisionPanel dec={dec} legacy={d.dispatch} />}
+        <ReroutePanel dec={dec} />
+        <HospitalDecisionPanel dec={dec} />
         <Panel title="Routes" className="wide">
           <table className="table" data-testid="routes-table">
             <thead><tr><th>Leg</th><th>Engine</th><th>Distance</th><th>Free-flow</th><th>Traffic ETA</th><th>Efficiency</th><th>Status</th><th>Re-route</th></tr></thead>
             <tbody>{d.routes.map((r) => (
               <tr key={r.id} className={r.active ? "selected" : ""}>
                 <td>{r.leg}</td><td>{r.engine}{r.alternatives && <div className="muted small">{r.alternatives.length} candidates</div>}</td>
-                <td>{fmtKm(r.distance_m)}</td><td>{fmtMin(r.base_duration_s)}</td><td>{fmtMin(r.adjusted_duration_s)}</td>
+                <td>{fmtKm(r.distance_m)}</td><td>{fmtMin(r.base_duration_s)}</td><td>{fmtMin(r.adjusted_duration_s)}{r.predicted_duration_s != null && <div className="muted small">pred. {fmtMin(r.predicted_duration_s)}</div>}</td>
                 <td>{r.route_efficiency != null ? pct(r.route_efficiency) : "—"}</td>
                 <td>{r.active ? "ACTIVE" : r.completed_at ? "completed" : "superseded"}</td>
-                <td>{r.reroute_reason ? <span className="reroute-cell">{r.reroute_reason}<br />Old ETA {r.old_eta_s != null ? fmtMin(r.old_eta_s) : "∞"} → New {fmtMin(r.adjusted_duration_s)}{r.time_saved_s != null && ` · saved ${fmtMin(r.time_saved_s)}`}</span> : "—"}</td>
+                <td>{r.reroute_reason ? <span className="reroute-cell">{r.reroute_reason}<br />Old ETA {r.old_eta_s != null ? fmtMin(r.old_eta_s) : "∞"} → New {fmtMin(r.predicted_duration_s ?? r.adjusted_duration_s)}{r.time_saved_s != null && ` · saved ${fmtMin(r.time_saved_s)}`}</span> : "—"}</td>
               </tr>))}</tbody>
           </table>
           {active && <div className="muted small">Active route progress {((active.progress_m || 0) / active.distance_m * 100).toFixed(0)}%</div>}
         </Panel>
-        <Panel title="Timeline (stored system events)" className="wide">
-          <ul className="timeline">{d.timeline.map((e, k) => (
-            <li key={k}><span className="muted">{fmtTime(e.at)}</span> <b>{e.type}</b> {summarize(e)}</li>))}</ul>
+        <DecisionTrace dec={dec} />
+        <Panel title="Raw event log (system_events)" className="wide">
+          <details><summary className="muted small">{d.timeline.length} stored events</summary>
+            <ul className="timeline">{d.timeline.map((e, k) => (
+              <li key={k}><span className="muted">{fmtTime(e.at)}</span> <b>{e.type}</b> {summarize(e)}</li>))}</ul></details>
           <Link to="/emergencies">← all incidents</Link>
         </Panel>
       </div>

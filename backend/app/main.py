@@ -11,7 +11,7 @@ from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import text
 
-from app.api import analytics, auth, emergencies, fleet, health, ml, routes, simulation, traffic
+from app.api import analytics, auth, dispatch, emergencies, fleet, health, ml, routes, simulation, traffic
 from app.config import get_settings
 from app.database import get_engine, run_migrations, session_scope
 from app.routing.engine import RoutingEngine
@@ -101,11 +101,15 @@ async def lifespan(app: FastAPI):
         from app.services.mission_service import mission_tick
         from app.services.routes_service import check_routes
         from app.services.telemetry_service import TELEMETRY
+        from app.services.traffic_prediction import predict_cycle
+        from app.services.hospital_prediction import hospital_cycle
         tasks += [
             asyncio.create_task(_loop("telemetry-flush", 1.0, lambda: TELEMETRY.flush(get_engine()))),
             asyncio.create_task(_loop("missions", 1.0, mission_tick)),
             asyncio.create_task(_loop("dispatcher", 3.0, dispatcher_cycle)),
-            asyncio.create_task(_loop("route-monitor", 5.0, check_routes)),
+            asyncio.create_task(_loop("route-monitor", s.route_monitor_interval_s, check_routes)),
+            asyncio.create_task(_loop("traffic-prediction", s.traffic_prediction_interval_s, predict_cycle)),
+            asyncio.create_task(_loop("hospital-prediction", s.hospital_prediction_interval_s, hospital_cycle)),
             asyncio.create_task(_loop("gauges", 10.0, _update_gauges)),
         ]
     log_event(log, "BACKEND_STARTED", city=s.city_name, mqtt=s.mqtt_enabled, osrm=s.osrm_url or None)
@@ -127,7 +131,7 @@ app.add_middleware(CORSMiddleware, allow_origins=[get_settings().frontend_url, "
                                                   "http://127.0.0.1:5173", "http://localhost:4173"],
                    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 for r in (health.router, auth.router, emergencies.router, fleet.router, routes.router, traffic.router,
-          analytics.router, ml.router, simulation.router):
+          analytics.router, ml.router, simulation.router, dispatch.router):
     app.include_router(r)
 
 

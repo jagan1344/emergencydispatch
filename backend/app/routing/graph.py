@@ -57,6 +57,12 @@ class RoadGraph:
         self.road_multiplier = np.ones(n_roads)      # incident multiplier
         self.road_blocked = np.zeros(n_roads, dtype=bool)
         self.road_level = ["FREE"] * n_roads
+        # predicted traffic (H minutes ahead); has_pred False -> prediction = current state
+        self.has_pred = np.zeros(n_roads, dtype=bool)
+        self.road_pred_factor = np.ones(n_roads)
+        self.road_pred_multiplier = np.ones(n_roads)
+        self.road_pred_blocked = np.zeros(n_roads, dtype=bool)
+        self.road_pred_level = ["FREE"] * n_roads
         self.version = 0
         self._cache: dict[tuple, csr_matrix] = {}
         # (u_idx, v_idx) -> edge index (shortest parallel edge wins)
@@ -109,6 +115,34 @@ class RoadGraph:
             self.version += 1
             self._cache.clear()
 
+    def set_road_prediction(self, road_id: str, level: str | None, incident_multiplier: float = 1.0) -> None:
+        """level None clears the prediction (the road is then predicted to keep its current state)."""
+        i = self.road_idx.get(road_id)
+        if i is None:
+            return
+        with self.lock:
+            if level is None:
+                self.has_pred[i] = False
+                self.road_pred_level[i] = self.road_level[i]
+            else:
+                self.has_pred[i] = True
+                self.road_pred_level[i] = level
+                self.road_pred_factor[i] = CONGESTION_FACTORS.get(level, 1.0)
+                self.road_pred_multiplier[i] = incident_multiplier
+                self.road_pred_blocked[i] = level == "BLOCKED"
+            self.version += 1
+            self._cache.clear()
+
+    def road_pred_speed_mps(self, road_i: int) -> float:
+        if not self.has_pred[road_i]:
+            return self.road_speed_mps(road_i)
+        if self.road_pred_blocked[road_i]:
+            return 0.0
+        return float(self.road_limit_kph[road_i] / 3.6 * self.road_pred_factor[road_i] * self.road_pred_multiplier[road_i])
+
+    def has_predictions(self) -> bool:
+        return bool(self.has_pred.any())
+
     def road_state(self, road_id: str) -> RoadState | None:
         i = self.road_idx.get(road_id)
         if i is None:
@@ -130,6 +164,15 @@ class RoadGraph:
         speed = self.road_limit_kph[self.e_road] / 3.6
         if kind == "free":
             return self.e_len / speed
+        if kind == "pred":   # predicted traffic where available, current traffic elsewhere
+            r = self.e_road
+            cur = speed * self.road_factor[r] * self.road_multiplier[r]
+            cur = np.where(self.road_blocked[r], 0.0, cur)
+            prd = speed * self.road_pred_factor[r] * self.road_pred_multiplier[r]
+            prd = np.where(self.road_pred_blocked[r], 0.0, prd)
+            eff = np.where(self.has_pred[r], prd, cur)
+            with np.errstate(divide="ignore"):
+                return np.where(eff > 0, self.e_len / np.maximum(eff, 1e-9), np.inf)
         eff = speed * self.road_factor[self.e_road] * self.road_multiplier[self.e_road]
         # 'time_closed': closures are passable at walking pace (last-resort access, e.g. police-escorted)
         eff = np.where(self.road_blocked[self.e_road], CLOSURE_SPEED_MPS if kind == "time_closed" else 0.0, eff)

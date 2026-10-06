@@ -70,6 +70,12 @@ class DeviceFix(BaseModel):
     accuracy_m: float | None = Field(default=None, ge=0, le=10_000)
 
 
+class ReviewRequest(BaseModel):
+    severity: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] | None = Field(
+        default=None, description="omit to confirm the predicted severity, or set to override it")
+    dispatch: bool = True
+
+
 class DispatchRequest(BaseModel):
     ambulance_id: str | None = Field(default=None, description="optional manual override")
 

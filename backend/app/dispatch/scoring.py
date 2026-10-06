@@ -9,6 +9,8 @@ DispatchScore = 0.40·ETA + 0.20·Capability + 0.15·Traffic + 0.10·Workload + 
   Distance   = route distance / max candidate route distance
 
 HospitalScore = 0.45·ETA + 0.25·CapabilityMismatch + 0.15·CapacityLoad + 0.15·TrafficDelay
+  with predictive congestion:  ETA term uses time-to-treatment = travel ETA + expected ED wait, and
+  CapacityLoad uses the load PREDICTED for the arrival time (both fall back to the current values).
 """
 from __future__ import annotations
 
@@ -150,6 +152,10 @@ class HospitalInput:
     trauma: bool
     cardiac: bool
     stroke: bool
+    # predictive congestion (optional): load expected when the ambulance arrives + estimated ED wait
+    predicted_load: float | None = None
+    expected_wait_s: float = 0.0
+    forecast: dict | None = None
 
 
 def hospital_capabilities(h: HospitalInput) -> dict[str, bool]:
@@ -159,31 +165,40 @@ def hospital_capabilities(h: HospitalInput) -> dict[str, bool]:
 def score_hospitals(hs: list[HospitalInput], requirements: list[str]) -> list[dict]:
     if not hs:
         return []
-    max_eta = max(h.eta_s for h in hs)
+    ttt = {h.hospital_id: h.eta_s + h.expected_wait_s for h in hs}       # time to treatment
+    max_eta = max(ttt.values())
     max_delay = max(h.traffic_delay_s for h in hs)
     out = []
     for h in hs:
         caps = hospital_capabilities(h)
         missing = [r for r in requirements if not caps[r]]
+        load = h.predicted_load if h.predicted_load is not None else h.current_load
         comps = {
-            "eta": _ratio(h.eta_s, max_eta),
+            "eta": _ratio(ttt[h.hospital_id], max_eta),
             "capability": (len(missing) / len(requirements)) if requirements else 0.0,
-            "load": min(1.0, h.current_load / h.emergency_capacity),
+            "load": min(1.0, load / h.emergency_capacity),
             "traffic": _ratio(h.traffic_delay_s, max_delay),
         }
         score = sum(HOSPITAL_WEIGHTS[k] * v for k, v in comps.items())
         out.append({"hospital_id": h.hospital_id, "name": h.name, "score": round(score, 4),
                     "components": {k: round(v, 4) for k, v in comps.items()}, "eta_s": round(h.eta_s, 1),
                     "distance_m": round(h.distance_m, 1), "traffic_delay_s": round(h.traffic_delay_s, 1),
-                    "missing_capabilities": missing, "full": h.current_load >= h.emergency_capacity})
-    out.sort(key=lambda d: (d["full"], d["score"]))
+                    "missing_capabilities": missing, "full": h.current_load >= h.emergency_capacity,
+                    "expected_wait_s": round(h.expected_wait_s, 1), "time_to_treatment_s": round(ttt[h.hospital_id], 1),
+                    "predicted_load": h.predicted_load, "forecast": h.forecast})
+    # capability is a hard constraint whenever a capable hospital exists (as for ambulances); within each group
+    # hospitals that are full are ranked last, then by score
+    out.sort(key=lambda d: (bool(d["missing_capabilities"]), d["full"], d["score"]))
     return out
 
 
 def explain_hospital(ranked: list[dict], requirements: list[str]) -> str:
     best = ranked[0]
+    f = best.get("forecast")
+    pred_txt = (f", predicted load {f['predicted_load_pct']:.0f}% at arrival (now {100 * f['current_load'] / max(f['capacity'], 1):.0f}%), "
+                f"estimated wait {f['expected_wait_min']:.0f} min" if f else f", load {best['components']['load'] * 100:.0f}%")
     lines = [f"Selected {best['name']} ({best['hospital_id']}): ETA {best['eta_s'] / 60:.1f} min, "
-             f"{best['distance_m'] / 1000:.2f} km, load {best['components']['load'] * 100:.0f}%, score {best['score']:.3f}."]
+             f"{best['distance_m'] / 1000:.2f} km{pred_txt}, score {best['score']:.3f}."]
     lines.append("Patient requires: " + (", ".join(requirements) if requirements else "general emergency care") +
                  (". All requirements met." if not best["missing_capabilities"]
                   else f". WARNING - missing at selected hospital: {', '.join(best['missing_capabilities'])}"))
@@ -197,6 +212,8 @@ def explain_hospital(ranked: list[dict], requirements: list[str]) -> str:
             why.append(f"higher load ({c['components']['load'] * 100:.0f}%)")
         if c["eta_s"] > best["eta_s"]:
             why.append("slower in current traffic")
+        if c.get("expected_wait_s", 0) > best.get("expected_wait_s", 0) + 60:
+            why.append(f"longer estimated ED wait ({c['expected_wait_s'] / 60:.0f} vs {best['expected_wait_s'] / 60:.0f} min)")
         lines.append(f"Closer option {c['name']} ({c['distance_m'] / 1000:.2f} km) not chosen: "
                      f"{', '.join(why) or 'higher overall score'} (score {c['score']:.3f}).")
     return " ".join(lines)

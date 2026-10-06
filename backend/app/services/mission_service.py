@@ -20,7 +20,7 @@ from app.routing.engine import NoRouteError
 from app.services import metrics
 from app.services.events import after_commit, emit
 from app.services.incident_service import set_status
-from app.services.routes_service import ACTIVE, activate, complete_route, save_route
+from app.services.routes_service import ACTIVE, activate, complete_route, emit_route_selected, save_route
 from app.services.state import STATE, require_router
 from app.utils.logging import log_event
 from app.utils.timeutil import sim_seconds, utcnow
@@ -93,9 +93,16 @@ def select_hospital(db: Session, inc: EmergencyIncident, origin: tuple[float, fl
         except NoRouteError:
             continue
         routes[hid] = rr
-        inputs.append(HospitalInput(hid, h.name, rr.adjusted_duration_s, rr.traffic_delay_s, rr.distance_m, h.current_load,
+        inputs.append(HospitalInput(hid, h.name, rr.eta_s, max(0.0, rr.eta_s - rr.base_duration_s), rr.distance_m, h.current_load,
                                     h.emergency_capacity, h.icu_available, h.trauma_available, h.cardiac_available,
                                     h.stroke_available))
+    from app.services.hospital_prediction import predict_hospitals
+    forecasts = predict_hospitals(db, horizons_by_hospital={h.hospital_id: h.eta_s / 60 for h in inputs})
+    for h in inputs:
+        f = forecasts.get(h.hospital_id)
+        if f is not None:
+            h.predicted_load, h.expected_wait_s = f.predicted_load, f.expected_wait_min * 60
+            h.forecast = f.as_dict()
     reqs = hospital_requirements(inc.severity or "MEDIUM", inc.emergency_type)
     ranked = score_hospitals(inputs, reqs)
     return ranked, routes, reqs, hospitals
@@ -113,6 +120,12 @@ def load_patient_and_transport(db: Session, inc: EmergencyIncident, amb: Ambulan
         return
     best = ranked[0]
     explanation = explain_hospital(ranked, reqs)
+    emit(db, "HOSPITAL_CONGESTION_PREDICTED", {
+        "incident_id": str(inc.id), "hospitals": len(ranked), "model_version": "hospital-queue-v1",
+        "summary": "; ".join(f"{h['hospital_id']}: load {h['forecast']['current_load']}/{h['forecast']['capacity']} -> "
+                             f"{h['forecast']['predicted_load_pct']:.0f}% at arrival, wait ~{h['forecast']['expected_wait_min']:.0f} min"
+                             for h in ranked if h.get("forecast"))[:900],
+        "forecasts": [h.get("forecast") for h in ranked]}, incident_id=inc.id, ambulance_id=amb.id)
     if best["missing_capabilities"] or best["full"]:
         emit(db, "HOSPITAL_WARNING", {"incident_id": str(inc.id), "reference": inc.reference,
                                       "warning": f"No fully suitable hospital: {best['name']} lacks "
@@ -132,6 +145,7 @@ def load_patient_and_transport(db: Session, inc: EmergencyIncident, amb: Ambulan
     rr.shortest_distance_m = require_router().shortest_distance(origin, dest)
     route = save_route(db, rr, leg="TO_HOSPITAL", origin=origin, dest=dest, ambulance_id=amb.id, incident_id=inc.id,
                        dispatch_id=disp.id if disp else None)
+    emit_route_selected(db, rr, "TO_HOSPITAL", inc.id, amb.id, route.id)
     emit(db, "HOSPITAL_SELECTED", {"incident_id": str(inc.id), "reference": inc.reference, "hospital_id": hosp.id,
                                    "hospital_name": hosp.name, "score": best["score"], "explanation": explanation,
                                    "candidates": ranked, "requirements": reqs, "route_id": str(route.id),
@@ -243,6 +257,7 @@ def hospital_discharge(db: Session, hospital_id: str, count: int = 1) -> None:
         return
     h.current_load = max(0, h.current_load - count)
     h.updated_at = utcnow()
+    emit(db, "HOSPITAL_DISCHARGE", {"hospital_id": h.id, "count": count, "current_load": h.current_load})
     emit(db, "HOSPITAL_CAPACITY_CHANGED", hospital_dict(h))
     cap_msg = {**hospital_dict(h), "source": "BACKEND"}
     after_commit(db, lambda: publish(f"hospital/{h.id}/capacity", cap_msg, retain=True))

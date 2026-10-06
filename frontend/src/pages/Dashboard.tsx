@@ -9,8 +9,12 @@ import { describeEvent, fmtMin, fmtTime } from "../services/format";
 export default function Dashboard() {
   const { incidents, ambulances, events, hospitals } = useLive();
   const [summary, setSummary] = useState<any>(null);
+  const [conflicts, setConflicts] = useState<any[]>([]);
   useEffect(() => {
-    const load = () => api("/api/analytics/summary").then(setSummary).catch(() => undefined);
+    const load = () => {
+      api("/api/analytics/summary").then(setSummary).catch(() => undefined);
+      api("/api/dispatch/conflicts?open_only=true").then(setConflicts).catch(() => undefined);
+    };
     load();
     const t = window.setInterval(load, 5000);
     return () => window.clearInterval(t);
@@ -28,6 +32,8 @@ export default function Dashboard() {
         <Kpi label="Hospitals" value={summary?.hospitals ?? hospitals.length} sub={`avg load ${summary?.avg_hospital_load_pct ?? "—"}%`} />
         <Kpi label="Avg response time" value={fmtMin(summary?.avg_response_time_s)} sub={`${summary?.response_samples ?? 0} live incidents`} />
         <Kpi label="Avg dispatch time" value={fmtMin(summary?.avg_dispatch_time_s)} sub={`decision ${summary?.avg_decision_ms ?? "—"} ms`} />
+        <Kpi testId="kpi-review" label="Awaiting review" value={incidents.filter((i) => i.decision_mode === "HUMAN_REVIEW" && i.status === "WAITING").length}
+          sub={`${conflicts.length} open resource conflicts`} tone={conflicts.length ? "crit" : undefined} />
         <Kpi label="Incidents today" value={summary?.incidents_today ?? "—"} sub={`${summary?.reroutes ?? 0} re-routes`} />
       </div>
       <div className="dash-grid">
@@ -43,7 +49,8 @@ export default function Dashboard() {
                 {queue.slice(0, 15).map((i) => (
                   <tr key={i.id}>
                     <td><Link to={`/emergencies/${i.id}`}>{i.reference}</Link><div className="muted small">{i.emergency_type}</div></td>
-                    <td><SeverityBadge s={i.severity} /></td>
+                    <td><SeverityBadge s={i.severity} />{i.decision_mode === "HUMAN_REVIEW" && i.status === "WAITING" &&
+                      <div className="small st-bad">review</div>}</td>
                     <td>{i.priority?.toFixed(0)}</td>
                     <td><StatusBadge s={i.status} />{i.status === "WAITING" && i.dispatch_note &&
                       <div className="muted small" title={i.dispatch_note}>{i.dispatch_note.slice(0, 60)}{i.dispatch_note.length > 60 ? "…" : ""}</div>}</td>

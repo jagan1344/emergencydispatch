@@ -119,6 +119,24 @@ def list_hospitals(_: User = Depends(any_user), db: Session = Depends(get_db)):
     return [hospital_dict(h) for h in db.scalars(select(Hospital).order_by(Hospital.id))]
 
 
+@router.get("/hospitals/predictions")
+def hospital_predictions(_: User = Depends(any_user), db: Session = Depends(get_db)):
+    """Current vs predicted load and estimated ED wait for every open hospital (computed now, ESTIMATED)."""
+    from app.services.hospital_prediction import MODEL_VERSION, predict_hospitals
+    f = predict_hospitals(db)
+    return {"model_version": MODEL_VERSION, "estimated": True, "predictions": [x.as_dict() for x in f.values()]}
+
+
+@router.get("/hospitals/{hospital_id}/prediction")
+def hospital_prediction(hospital_id: str, horizon_min: float | None = None, _: User = Depends(any_user),
+                        db: Session = Depends(get_db)):
+    from app.services.hospital_prediction import predict_hospitals
+    f = predict_hospitals(db, horizon_min=horizon_min)
+    if hospital_id not in f:
+        raise HTTPException(404, "hospital not found or closed")
+    return f[hospital_id].as_dict()
+
+
 @router.post("/hospitals", status_code=201)
 def create_hospital(body: HospitalCreate, _: User = Depends(admin), db: Session = Depends(get_db)):
     if db.get(Hospital, body.id):

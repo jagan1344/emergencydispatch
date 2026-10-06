@@ -7,6 +7,8 @@ import uuid
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
+from app.dispatch.confidence import assess
 from app.dispatch.priority import priority_score
 from app.dispatch.severity import combine_severity, required_capability, severity_score
 from app.ml.predict import ModelUnavailable
@@ -64,7 +66,9 @@ def incident_dict(i: EmergencyIncident) -> dict:
         "severity": i.severity, "severity_reasons": i.severity_reasons, "priority": i.priority,
         "priority_components": i.priority_components, "required_capability": i.required_capability,
         "assigned_ambulance": i.assigned_ambulance, "destination_hospital": i.destination_hospital,
-        "status": i.status, "dispatch_note": i.dispatch_note, "dispatched_at": i.dispatched_at, "arrived_at": i.arrived_at, "loaded_at": i.loaded_at,
+        "status": i.status, "dispatch_note": i.dispatch_note, "class_probabilities": i.class_probabilities,
+        "confidence_level": i.confidence_level, "decision_mode": i.decision_mode, "decision_reason": i.decision_reason,
+        "reviewed_by": i.reviewed_by, "reviewed_at": i.reviewed_at, "dispatched_at": i.dispatched_at, "arrived_at": i.arrived_at, "loaded_at": i.loaded_at,
         "hospital_arrived_at": i.hospital_arrived_at, "completed_at": i.completed_at, "cancelled_at": i.cancelled_at,
         "source": i.source, "created_by": i.created_by,
         "response_time_s": sim_seconds(i.created_at, i.arrived_at) if i.source != "HISTORICAL_SEED" else i.historical_response_s,
@@ -146,9 +150,11 @@ def classify(db: Session, inc: EmergencyIncident, case: dict) -> None:
     rule = severity_score(case)
     inc.rule_score, inc.rule_severity, inc.rule_components = rule.score, rule.level, rule.components
     ml_level = None
+    probabilities = None
     try:
         pred = STATE.model.predict(case)
         ml_level = pred.severity
+        probabilities = pred.probabilities
         inc.predicted_severity, inc.ml_confidence, inc.ml_status = pred.severity, pred.confidence, "OK"
         db.add(ModelPrediction(incident_id=inc.id, model_name=pred.model_name, model_version=pred.model_version,
                                features=pred.features, predicted_class=pred.severity, probabilities=pred.probabilities,
@@ -162,10 +168,44 @@ def classify(db: Session, inc: EmergencyIncident, case: dict) -> None:
     inc.severity = final
     inc.severity_reasons = rule.reasons + [f"final severity basis: {basis}"]
     inc.required_capability = required_capability(final, inc.emergency_type)
+    st = get_settings()
+    ca = assess(probabilities, ml_level, st.dispatch_confidence_high, st.dispatch_confidence_low,
+                safety_override=basis.startswith("SAFETY_OVERRIDE"))
+    inc.class_probabilities = probabilities
+    inc.confidence_level, inc.decision_mode, inc.decision_reason = ca.confidence_level, ca.decision_mode, ca.reason
     emit(db, "EMERGENCY_CLASSIFIED", {"incident_id": str(inc.id), "predicted_severity": ml_level,
                                       "ml_confidence": inc.ml_confidence, "ml_status": inc.ml_status,
                                       "rule_score": rule.score, "rule_severity": rule.level, "severity": final,
                                       "basis": basis, "reasons": rule.reasons}, incident_id=inc.id)
+    emit(db, "CONFIDENCE_ASSESSED", {"incident_id": str(inc.id), "predicted_severity": ml_level,
+                                     "model_version": STATE.model.version, **ca.as_dict(),
+                                     "thresholds": {"high": st.dispatch_confidence_high, "low": st.dispatch_confidence_low}},
+         incident_id=inc.id)
+    log_event(log, "CONFIDENCE_ASSESSED", incident_id=str(inc.id), predicted=ml_level, confidence=ca.confidence,
+              level=ca.confidence_level, decision=ca.decision_mode, model_version=STATE.model.version)
+
+
+def review_incident(db: Session, inc: EmergencyIncident, user: str, severity: str | None = None) -> None:
+    """Dispatcher confirms (or overrides) the severity of an incident; this authorises dispatch."""
+    from app.dispatch.priority import LEVEL_VALUE
+    old = inc.severity
+    if severity and severity != inc.severity:
+        if severity not in LEVEL_VALUE:
+            raise IncidentValidationError(f"unknown severity {severity}")
+        inc.severity = severity
+        inc.required_capability = required_capability(severity, inc.emergency_type)
+        inc.severity_reasons = (inc.severity_reasons or []) + [f"severity set to {severity} by dispatcher {user}"]
+    inc.reviewed_by, inc.reviewed_at = user, utcnow()
+    prev_mode = inc.decision_mode
+    inc.decision_mode = "HUMAN_APPROVED"
+    inc.decision_reason = (f"Reviewed by {user}" + (f": severity {old} -> {inc.severity}" if old != inc.severity else
+                           f": severity {inc.severity} confirmed") + f" (was {prev_mode}).")
+    score, comps = compute_priority(db, inc)
+    inc.priority, inc.priority_components = score, comps
+    emit(db, "HUMAN_REVIEW_COMPLETED", {"incident_id": str(inc.id), "reference": inc.reference, "reviewed_by": user,
+                                        "old_severity": old, "severity": inc.severity, "previous_mode": prev_mode},
+         incident_id=inc.id)
+    log_event(log, "HUMAN_REVIEW_COMPLETED", incident_id=str(inc.id), severity=inc.severity, previous_mode=prev_mode)
 
 
 def refresh_waiting_priorities(db: Session) -> list[EmergencyIncident]:

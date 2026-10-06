@@ -29,7 +29,7 @@ export interface HospitalCandidate {
 export interface Route {
   id: string; incident_id: string | null; ambulance_id: string | null; leg: string; engine: string;
   network_source: string; distance_m: number; completed_at: string | null; base_duration_s: number; adjusted_duration_s: number;
-  osrm_duration_s: number | null; shortest_distance_m: number | null; route_efficiency: number | null;
+  osrm_duration_s: number | null; predicted_duration_s?: number | null; shortest_distance_m: number | null; route_efficiency: number | null;
   traffic_delay_s: number; active: boolean; created_at: string; reroute_of: string | null;
   reroute_reason: string | null; old_eta_s: number | null; time_saved_s: number | null;
   alternatives: { engine: string; distance_m: number; adjusted_duration_s: number | null; selected: boolean; feasible: boolean }[] | null;
@@ -45,7 +45,7 @@ export interface Incident {
   predicted_severity: Severity | null; ml_confidence: number | null; ml_status: string; severity: Severity | null;
   severity_reasons: string[] | null; priority: number | null; priority_components: Record<string, number | null> | null;
   required_capability: string | null; assigned_ambulance: string | null; destination_hospital: string | null;
-  status: string; dispatch_note?: string | null; dispatched_at: string | null; arrived_at: string | null; completed_at: string | null;
+  status: string; dispatch_note?: string | null; decision_mode?: string | null; confidence_level?: string | null; dispatched_at: string | null; arrived_at: string | null; completed_at: string | null;
   source: string; response_time_s: number | null;
 }
 

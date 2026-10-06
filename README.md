@@ -17,7 +17,7 @@ PostgreSQL/PostGIS.
 4. [Features](#4-features) · 5. [Architecture](#5-architecture) · 6. [Technology stack](#6-technology-stack) ·
 7. [Database](#7-database-architecture) · 8. [ML](#8-ml-architecture) · 9. [Routing](#9-routing-architecture) ·
 10. [Traffic simulation](#10-traffic-simulation) · 11. [Dispatch algorithm](#11-dispatch-algorithm) ·
-12. [Formulas](#12-formulas) · 13. [Installation (Windows)](#13-installation-windows-powershell) ·
+12. [Formulas](#12-formulas) · 12a. [Decision intelligence](#12a-decision-intelligence) · 13. [Installation (Windows)](#13-installation-windows-powershell) ·
 14. [Running](#14-running-the-project) · 15. [Docker](#15-option-b-docker-compose) · 16. [Demo](#16-demo-scenario) ·
 17. [API](#17-api) · 18. [Testing](#18-testing) · 19. [Measured results](#19-measured-results) ·
 20. [Screenshots](#20-screenshots) · 21. [Limitations](#21-limitations) · 22. [Future work](#22-future-work)
@@ -61,6 +61,7 @@ open-source components so each step (prediction, scoring, routing, re-routing) i
 | Analytics | response/dispatch time, route efficiency, re-routes, utilisation, hospital load, severity/type distributions, ML metrics |
 | Security | JWT (HS256), bcrypt password hashes, roles ADMIN / DISPATCHER / VIEWER |
 | Simulation | seeded schedules (`seed=42` reproducible), 16-step scripted demo scenario |
+| Decision intelligence | confidence-aware dispatch with human review, explanations + counterfactuals, predictive traffic and hospital congestion, multi-emergency reallocation, telemetry-driven rerouting without oscillation ([§12a](#12a-decision-intelligence)) |
 | Ops | `/api/health`, structured JSON logs, Prometheus `/metrics`, Docker Compose |
 
 ## 5. Architecture
@@ -274,6 +275,49 @@ All implemented in code (file in brackets) and unit-tested.
 * **HospitalScore** (lower is better) = 0.45·ETA + 0.25·CapabilityMismatch + 0.15·CapacityLoad +
   0.15·TrafficDelay; mismatch = unmet requirements / requirements (ICU for CRITICAL, trauma for severe
   accident/trauma/fire, cardiac, stroke); full hospitals are ranked last.
+
+## 12a. Decision intelligence
+The six features below share one decision engine. Each one reads and writes the same incident, dispatch,
+route and event records. Every panel in the UI is built from stored data: the `system_events` trace and
+the `dispatches`, `routes`, `traffic_predictions`, `hospital_predictions` and `resource_conflicts` rows.
+None of it is recomputed for display. Thresholds are set in `.env` (see `.env.example`).
+
+| # | Feature | Code | Rule (what the code actually does) |
+|---|---|---|---|
+| 1 | Confidence-aware dispatch | `dispatch/confidence.py`, `services/incident_service.py`, `services/dispatch_service.py` | confidence = RandomForest top-class probability. `≥ DISPATCH_CONFIDENCE_HIGH` → **AUTO_DISPATCH**; `< DISPATCH_CONFIDENCE_LOW` → **HUMAN_REVIEW**; otherwise **DISPATCH_WITH_REVIEW**. The safety override never lowers the level. A HUMAN_REVIEW incident waits for `POST /review`; after `HUMAN_REVIEW_TIMEOUT_S` it is released at the most severe plausible level (`HUMAN_REVIEW_TIMEOUT` event). Stored: predicted severity, confidence, class probabilities, level, mode and reason. |
+| 2 | Explainable + counterfactual dispatch | `dispatch/explain.py` | per-factor contributions of the DispatchScore (weight × normalised value). "Why not X?" compares the chosen unit with X on the stored candidate rows: score delta, ETA delta, trade-offs and the factor that decided. The summary says so when the runner-up would have arrived earlier. The hospital choice is explained the same way. |
+| 3 | Predictive traffic | `ml/traffic_model.py`, `services/traffic_prediction.py`, `routing/graph.py`, `routing/engine.py` | A RandomForest is trained on the `traffic_events` history to predict the level `TRAFFIC_PREDICTION_HORIZON_MIN` ahead. It is used (`method=MODEL`) **only if it beats the persistence baseline** on a time-ordered 25 % hold-out. Otherwise the transparent **FALLBACK** applies: next = cur + (mean − cur)·(1 − e^(−h/τ)), with τ and the incident duration estimated from the history. Predictions are stored per road (road, time, horizon, current/predicted level, speed, delay, confidence, model version). Routing blends live and predicted speed along the route: w = min(1, t/H) at time t into the trip, and candidates are ranked by that predicted ETA. |
+| 4 | Predictive hospital congestion | `services/hospital_prediction.py`, `dispatch/scoring.py` | L(h) = L0·e^(−h/stay) + incoming(h) + λ·h, where λ and the stay are observed arrival/discharge rates (defaults while there are fewer than 3 observations). Expected wait = slot·ρ/(1−ρ), ρ = L/capacity, capped. Hospitals are scored on their forecast **at the ambulance's arrival time**, using time-to-treatment = ETA + wait. Missing capabilities always rank a hospital lower. Every value is labelled `estimated: true` with its method and confidence. |
+| 5 | Multi-emergency reallocation | `services/reallocation.py`, `api/dispatch.py` | Considered only when the best free unit's ETA exceeds `RESOURCE_REALLOCATION_THRESHOLD`. A committed unit may be diverted only from a **strictly less severe** incident with priority lower by `REALLOCATION_PRIORITY_MARGIN`, if it arrives at least `REALLOCATION_MIN_GAIN_S` sooner and the donor's extra delay is ≤ `REALLOCATION_MAX_DONOR_DELAY_S`. Otherwise the conflict is **ESCALATED** to the dispatcher (approve or reject). The donor immediately gets the best remaining unit. Every case is stored in `resource_conflicts` (KEEP / REALLOCATED / ESCALATED / APPROVED / REJECTED). |
+| 6 | Telemetry-driven rerouting | `services/routes_service.py`, `simulator/ambulance_simulator.py` | Triggers: a blocked road ahead, live or predicted degradation, SEVERE congestion, or an accident on the route. Accept iff new_eta + max(`REROUTE_MIN_ETA_SAVINGS`, old_eta·`REROUTE_MIN_IMPROVEMENT_PERCENT`%) ≤ old_eta, **and** not within `REROUTE_COOLDOWN_SECONDS`, **and** the route is not ≥ 80 % similar (Jaccard on roads) to an abandoned one. A blocked road or an infinite ETA overrides cooldown and similarity. The new route is computed from the ambulance's current GPS position on the real road graph and sent as MQTT `ROUTE_UPDATED`. The simulator snaps onto the new route from where it is, with no teleport. |
+
+**Events** (in `system_events` and on the WebSocket): `CONFIDENCE_ASSESSED`, `DISPATCH_DECISION`,
+`DISPATCH_EXPLANATION_GENERATED`, `COUNTERFACTUAL_EVALUATED`, `TRAFFIC_PREDICTION_CREATED`,
+`HOSPITAL_CONGESTION_PREDICTED`, `RESOURCE_CONFLICT_DETECTED`, `RESOURCE_REALLOCATED`,
+`ROUTE_DEGRADATION_DETECTED`, `REROUTE_EVALUATED`, `REROUTE_TRIGGERED`, `ROUTE_UPDATED`, `HUMAN_REVIEW_TIMEOUT`.
+
+**Database:** migration `database/migrations/0004_decision_intelligence.sql` adds:
+* incident columns: `class_probabilities`, `confidence_level`, `decision_mode`, `decision_reason`, `reviewed_by/at`;
+* dispatch columns: `counterfactuals`, `decision_mode`, and the status `REALLOCATED`;
+* route columns: `predicted_duration_s`, `prediction_horizon_min`;
+* tables `traffic_predictions`, `hospital_predictions` and `resource_conflicts`.
+
+Apply it with `python -m app.migrate`.
+
+**UI** (Emergency details page): the AI Decision panel (confidence bar, class probabilities, review
+buttons), the Ambulance Decision panel (factor contributions, *Why?*, alternatives with *Why not?*),
+Predicted Traffic, Rerouting history, Hospital decision (predicted load and wait, estimated), Resource
+conflicts (approve/reject) and the Decision trace. The Dashboard shows "Awaiting review" and open
+conflicts. Traffic Control has a predicted-traffic table with the model status; Hospitals has predicted
+load and wait columns.
+
+**Live measurements** (Monaco OSM + OSRM + MQTT + simulators):
+* Traffic model on 4 270 samples from the simulator history: `traffic-rf`, hold-out accuracy
+  **0.692 vs 0.604** for persistence (MAE 0.602 vs 0.683 levels), so `method=MODEL`.
+* A CRITICAL demo call was classified at 99.2 % confidence → AUTO_DISPATCH. It was rerouted live via
+  `ROUTE_UPDATED` (the simulator snapped on at 0 m offset) and completed.
+* A CRITICAL-vs-LOW conflict was **ESCALATED** because the donor delay of 10.1 min exceeded 5 min. The
+  dispatcher approved it, the units were swapped, and the cost was +4.3 min for the LOW call.
 
 ## 13. Installation (Windows PowerShell)
 Get the code (into `D:\emergencydispatch`):
@@ -492,6 +536,13 @@ Interactive docs: `/docs`. All endpoints except login/health require `Authorizat
 | GET | `/api/emergencies/{id}` | any | details: dispatch decision, routes, prediction, timeline, live ETA |
 | POST | `/api/emergencies/{id}/dispatch` `{ambulance_id?}` | DISPATCHER | dispatch now (optional manual override) |
 | GET | `/api/emergencies/{id}/candidates` | any | candidate evaluation preview |
+| POST | `/api/emergencies/{id}/review` `{severity?, dispatch}` | DISPATCHER | confirm/correct the AI severity (HUMAN_APPROVED), optionally dispatch |
+| GET | `/api/emergencies/{id}/decision` | any | unified decision record: confidence, explanation, counterfactuals, routes, reroutes, traffic, hospital, conflicts, trace |
+| GET | `/api/emergencies/{id}/alternatives` `?ambulance_id=` | any | "why not this unit?" counterfactuals |
+| GET | `/api/dispatch/conflicts` `?open_only=` | any | resource conflicts / reallocations |
+| POST | `/api/dispatch/conflicts/{id}/approve` · `/reject` | DISPATCHER | resolve an escalated reallocation |
+| GET/POST | `/api/traffic/predictions` `?changed_only=` · `/predictions/refresh` `?retrain=` | any / DISPATCHER | predicted traffic + model status · recompute |
+| GET | `/api/hospitals/predictions` · `/api/hospitals/{id}/prediction` `?horizon_min=` | any | predicted hospital load and wait (estimated) |
 | POST | `/api/emergencies/{id}/reroute` · `/cancel` | DISPATCHER | re-evaluate route · cancel |
 | GET | `/api/ambulances` `?status=&near_lat=&near_lon=&radius_m=` · `/{id}` | any | fleet (PostGIS `ST_DWithin` filter), track |
 | POST/PATCH | `/api/ambulances` · `/{id}` | ADMIN | manage units |
@@ -506,14 +557,14 @@ Interactive docs: `/docs`. All endpoints except login/health require `Authorizat
 | GET/POST | `/api/ml/model` · `/api/ml/predict` | any | metrics · predict without creating an incident |
 | POST | `/api/simulation/start` · `/demo-scenario` · `/stop` · `/reset`; GET `/status` · `/schedule-preview` | DISPATCHER / any | simulation |
 | GET | `/api/health` · `/metrics` | – | component health (503 if DB/graph down) · Prometheus |
-| WS | `/ws?token=<JWT>` | any | events: `AMBULANCE_LOCATION_UPDATED`, `AMBULANCE_STATUS_CHANGED`, `EMERGENCY_CREATED`, `EMERGENCY_STATUS_CHANGED`, `EMERGENCY_PRIORITY_CHANGED`, `EMERGENCY_CLASSIFIED`, `DISPATCH_CREATED`, `ROUTE_RECALCULATED`, `ROUTE_CHECK`, `TRAFFIC_CHANGED`, `HOSPITAL_SELECTED`, `HOSPITAL_CAPACITY_CHANGED`, `HOSPITAL_WARNING`, `INCIDENT_COMPLETED`, `SIMULATION_STATUS` |
+| WS | `/ws?token=<JWT>` | any | events: `AMBULANCE_LOCATION_UPDATED`, `AMBULANCE_STATUS_CHANGED`, `EMERGENCY_CREATED`, `EMERGENCY_STATUS_CHANGED`, `EMERGENCY_PRIORITY_CHANGED`, `EMERGENCY_CLASSIFIED`, `DISPATCH_CREATED`, `ROUTE_RECALCULATED`, `ROUTE_CHECK`, `TRAFFIC_CHANGED`, `HOSPITAL_SELECTED`, `HOSPITAL_CAPACITY_CHANGED`, `HOSPITAL_WARNING`, `INCIDENT_COMPLETED`, `SIMULATION_STATUS`, and the decision events in [§12a](#12a-decision-intelligence) |
 
-MQTT topics: `ambulance/{id}/location|status|telemetry|command`, `traffic/{road_id}/status|speed`,
+MQTT topics: `ambulance/{id}/location|status|telemetry|command` (commands `FOLLOW_ROUTE`, `ROUTE_UPDATED`, `IDLE`), `traffic/{road_id}/status|speed`,
 `traffic/events`, `emergency/{id}/created|status`, `hospital/{id}/capacity`, `simulator/heartbeat`.
 
 ## 18. Testing
 ```powershell
-# backend: 40 tests (wipes and recreates TEST_DATABASE_URL, default database ems_test)
+# backend: 69 tests (wipes and recreates TEST_DATABASE_URL, default database ems_test)
 cd backend; python -m pytest
 
 # frontend E2E (backend on :8000 and `npm run dev` running; simulator optional)
@@ -535,12 +586,25 @@ cd frontend; npx playwright install chromium; npx playwright test
   training + prediction on the KTAS format, OSM hospital import from the real Monaco extract, verified CSV round-trip.
 * `test_device_gps.py`: phone-GPS fixes drive the mission (map-matching, progress, off-route re-route from the
   real position, arrival radius), input validation and RBAC.
+* `test_confidence.py`: confidence bands; AUTO_DISPATCH, DISPATCH_WITH_REVIEW and HUMAN_REVIEW paths end-to-end (review API); safety timeout.
+* `test_explain.py`: factor contributions, counterfactual deltas, trade-off sentence, decision API with infinite ETAs.
+* `test_predictions.py`: traffic fallback maths, model-vs-persistence gate, prediction storage and routing use,
+  hospital forecast/wait formula, a slightly farther hospital with a shorter wait wins, prediction APIs.
+* `test_rerouting_rules.py`: savings/percent/cooldown/oscillation rules, forced reroute on blocked roads.
+* `test_simulator_reroute.py`: `ROUTE_UPDATED` continues from the current position (no teleport).
+* `test_reallocation.py`: never takes from an equally or more critical call, reallocates with a replacement when safe,
+  escalates when the donor delay is too large (then approval), contested unit goes to the higher priority, swap approval.
+* `test_e2e_decision.py`: deterministic end-to-end run on the synthetic network with a recording MQTT bridge.
+  It covers confidence → dispatch → explanation → predicted traffic → road block → `ROUTE_UPDATED` →
+  cooldown holds → hospital forecast → completion, and checks the decision-trace order. No internet or OSRM needed.
+* `frontend/e2e/decision.spec.ts`: decision panels (why / why-not, trace) and the predicted-traffic table.
+  `e2e/global-setup.ts` resets operations before a run.
 * `frontend/e2e/crew.spec.ts`: emulated phone geolocation on the Crew GPS page drives an ambulance to ARRIVED.
 * `frontend/e2e/dispatch.spec.ts`: login (bad + good), create emergency via form and map click, see
   dispatch explanation, see the ambulance marker on the map, traffic event → re-route banner and route
   table, analytics, viewer is read-only.
 
-Last run in the development environment: **backend 40 passed**, **Playwright 4 passed**.
+Last run in the development environment: **backend 69 passed** (40 existing + 29 new), **Playwright 6 passed** (3 consecutive runs).
 
 ## 19. Measured results
 Measured in the development container (Linux, 4 vCPU, Python 3.11) on the Monaco OSM network
@@ -571,7 +635,8 @@ because the sandbox could not reach the OSM tile server; on a normal machine the
 | ![Dashboard](docs/screenshots/01-dashboard.png) | ![Create emergency](docs/screenshots/02-create-emergency.png) |
 | ![Emergency details & decision explanation](docs/screenshots/03-emergency-details.png) | ![Live map](docs/screenshots/04-live-map.png) |
 | ![Traffic control & re-route banner](docs/screenshots/05-traffic-reroute.png) | ![Route recalculated](docs/screenshots/06-route-recalculated.png) |
-| ![Analytics](docs/screenshots/07-analytics.png) | |
+| ![Analytics](docs/screenshots/07-analytics.png) | ![Decision panels](docs/screenshots/09-decision-panels.png) |
+| ![Resource conflict escalated](docs/screenshots/10-resource-conflict-escalated.png) | ![Reallocation approved](docs/screenshots/11-resource-reallocated.png) |
 
 ## 21. Limitations
 * **Traffic is simulated** (Markov model + scripted/dispatcher events). No free real-time traffic source
@@ -593,6 +658,12 @@ because the sandbox could not reach the OSM tile server; on a normal machine the
 * The weighted scores are engineering choices; they do not guarantee the fastest possible response.
 * Single backend process; dispatch serialisation uses an in-process lock plus row locks, which suits one
   instance (horizontal scaling would need a distributed lock/queue).
+* **Predictions are estimates.** Hospital load and wait come from a queueing approximation on simulated
+  admissions and discharges. They are labelled as estimates and are not real ED data. The traffic model learns
+  from simulated traffic only, so it is used only while it beats persistence.
+* Confidence is the RandomForest's class probability. It is not calibrated against clinical outcomes.
+* Reallocation considers one donor unit per conflict. Chains of reassignments are escalated to the dispatcher
+  rather than optimised.
 * The ambulance simulator restarts a route from its start if the simulator itself is restarted mid-route.
 
 ## 22. Future work
