@@ -8,10 +8,9 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.dispatch.confidence import assess
 from app.dispatch.priority import priority_score
-from app.dispatch.severity import combine_severity, required_capability, severity_score
-from app.ml.predict import ModelUnavailable
+from app.dispatch.severity import required_capability
+from app.dispatch.triage import triage
 from app.models import Ambulance, EmergencyIncident, ModelPrediction
 from app.models.entities import point_wkt
 from app.mqtt.client import publish
@@ -147,30 +146,24 @@ def create_incident(db: Session, data: dict, created_by: str | None = None, sour
 
 
 def classify(db: Session, inc: EmergencyIncident, case: dict) -> None:
-    rule = severity_score(case)
+    st = get_settings()
+    t = triage(case, STATE.model, st.dispatch_confidence_high, st.dispatch_confidence_low)
+    rule, pred, ml_level, final, basis, ca = t.rule, t.prediction, t.ml_level, t.severity, t.basis, t.assessment
     inc.rule_score, inc.rule_severity, inc.rule_components = rule.score, rule.level, rule.components
-    ml_level = None
-    probabilities = None
-    try:
-        pred = STATE.model.predict(case)
-        ml_level = pred.severity
-        probabilities = pred.probabilities
+    probabilities = pred.probabilities if pred is not None else None
+    if pred is not None:
         inc.predicted_severity, inc.ml_confidence, inc.ml_status = pred.severity, pred.confidence, "OK"
         db.add(ModelPrediction(incident_id=inc.id, model_name=pred.model_name, model_version=pred.model_version,
                                features=pred.features, predicted_class=pred.severity, probabilities=pred.probabilities,
                                latency_ms=pred.latency_ms))
         log_event(log, "ML_PREDICTION", incident_id=str(inc.id), predicted=pred.severity,
                   confidence=round(pred.confidence, 3), model_version=pred.model_version)
-    except ModelUnavailable as exc:
+    else:
         inc.ml_status = "UNAVAILABLE"
-        log_event(log, "ML_PREDICTION_UNAVAILABLE", incident_id=str(inc.id), error=str(exc))
-    final, basis = combine_severity(ml_level, rule.level)
+        log_event(log, "ML_PREDICTION_UNAVAILABLE", incident_id=str(inc.id), error=t.ml_error)
     inc.severity = final
     inc.severity_reasons = rule.reasons + [f"final severity basis: {basis}"]
-    inc.required_capability = required_capability(final, inc.emergency_type)
-    st = get_settings()
-    ca = assess(probabilities, ml_level, st.dispatch_confidence_high, st.dispatch_confidence_low,
-                safety_override=basis.startswith("SAFETY_OVERRIDE"))
+    inc.required_capability = t.required_capability
     inc.class_probabilities = probabilities
     inc.confidence_level, inc.decision_mode, inc.decision_reason = ca.confidence_level, ca.decision_mode, ca.reason
     emit(db, "EMERGENCY_CLASSIFIED", {"incident_id": str(inc.id), "predicted_severity": ml_level,

@@ -256,33 +256,17 @@ def check_routes(affected_roads: set[str] | None = None, accident_roads: set[str
         ahead_roads = {s.road_id for s in ahead if s.road_id}
         if affected_roads is not None and not force_ambulance and not (ahead_roads & affected_roads):
             continue
-        reason = None
         current = remaining_eta(ar, current=True)
         planned = remaining_eta(ar, current=False)
-        deg = degradation(planned, current)
         predicted = predicted_remaining_eta(ar)
-        pdeg = degradation(planned, predicted) if predicted is not None else 0.0
-        blocked_ahead = [r for r in ahead_roads if g.road_state(r) and g.road_state(r).blocked]
-        severe_ahead = [r for r in ahead_roads if g.road_state(r) and g.road_state(r).level == "SEVERE"
-                        and r not in ar.considered_roads]
-        acc_ahead = [r for r in ahead_roads & (accident_roads or set()) if r not in ar.considered_roads]
-        if blocked_ahead:
-            reason = f"road blocked ahead ({', '.join(sorted(blocked_ahead)[:3])})"
-        elif acc_ahead:
-            reason = f"accident on current route ({', '.join(sorted(acc_ahead)[:3])})"
-        elif deg > settings.reroute_threshold:
-            reason = f"ETA increased by {deg * 100:.0f}% (> {settings.reroute_threshold * 100:.0f}%)"
-        elif severe_ahead:
-            reason = f"severe congestion on current route ({', '.join(sorted(severe_ahead)[:3])})"
-        elif pdeg > settings.reroute_threshold and "predicted" not in ar.considered_roads:
-            reason = (f"traffic predicted to worsen on current route: ETA +{pdeg * 100:.0f}% within "
-                      f"{settings.traffic_prediction_horizon_min:.0f} min")
-            ar.considered_roads.add("predicted")
-        elif force_ambulance:
+        trig = reroute_trigger(ahead_roads, g.road_state, planned, current, predicted, ar.considered_roads,
+                               accident_roads, settings)
+        reason, blocked_ahead = trig.reason, trig.blocked_ahead
+        if reason is None and force_ambulance:
             reason = "manual re-route request"
         if not reason:
             continue
-        ar.considered_roads |= set(severe_ahead) | set(acc_ahead)
+        ar.considered_roads |= trig.mark_considered
         with STATE.lock, session_scope() as db:
             if ACTIVE.get(ar.ambulance_id) is not ar:   # mission moved on meanwhile
                 continue
@@ -298,6 +282,40 @@ def check_routes(affected_roads: set[str] | None = None, accident_roads: set[str
                            forced=bool(blocked_ahead) or bool(force_ambulance))
             results.append(res)
     return results
+
+
+@dataclass
+class RerouteTrigger:
+    reason: str | None
+    blocked_ahead: list[str]
+    mark_considered: set[str]          # roads (and the "predicted" marker) not to trigger again on this route
+
+
+def reroute_trigger(ahead_roads: set[str], road_state, planned: float, current: float, predicted: float | None,
+                    considered: set[str], accident_roads: set[str] | None, st) -> RerouteTrigger:
+    """Pure trigger rule (shared by the live route monitor and the evaluation simulator). First match wins:
+         road blocked ahead > accident on the route > ETA +REROUTE_THRESHOLD > SEVERE congestion ahead
+         > predicted ETA +REROUTE_THRESHOLD within the prediction horizon."""
+    deg = degradation(planned, current)
+    pdeg = degradation(planned, predicted) if predicted is not None else 0.0
+    blocked_ahead = [r for r in ahead_roads if road_state(r) and road_state(r).blocked]
+    severe_ahead = [r for r in ahead_roads if road_state(r) and road_state(r).level == "SEVERE" and r not in considered]
+    acc_ahead = [r for r in ahead_roads & (accident_roads or set()) if r not in considered]
+    mark = set(severe_ahead) | set(acc_ahead)
+    reason = None
+    if blocked_ahead:
+        reason = f"road blocked ahead ({', '.join(sorted(blocked_ahead)[:3])})"
+    elif acc_ahead:
+        reason = f"accident on current route ({', '.join(sorted(acc_ahead)[:3])})"
+    elif deg > st.reroute_threshold:
+        reason = f"ETA increased by {deg * 100:.0f}% (> {st.reroute_threshold * 100:.0f}%)"
+    elif severe_ahead:
+        reason = f"severe congestion on current route ({', '.join(sorted(severe_ahead)[:3])})"
+    elif pdeg > st.reroute_threshold and "predicted" not in considered:
+        reason = (f"traffic predicted to worsen on current route: ETA +{pdeg * 100:.0f}% within "
+                  f"{st.traffic_prediction_horizon_min:.0f} min")
+        mark.add("predicted")
+    return RerouteTrigger(reason, blocked_ahead, mark if reason else set())
 
 
 def reroute_decision(old_eta: float, new_eta: float, *, since_last_s: float | None, similarity: float,

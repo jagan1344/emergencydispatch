@@ -140,10 +140,21 @@ def _totals(segments: list[Segment]) -> tuple[float, float, float]:
     return dist, base, adj
 
 
+@dataclass(frozen=True)
+class RoutingPolicy:
+    """Which traffic intelligence the router uses. The live system uses the default (None = settings):
+    traffic-aware candidates ranked by (predicted) ETA. traffic_aware=False is conventional static routing:
+    free-flow travel time, current closures avoided, congestion ignored (used by evaluation baselines)."""
+    traffic_aware: bool = True
+    use_prediction: bool | None = None          # None -> TRAFFIC_PREDICTION_ENABLED
+    horizon_min: float | None = None            # None -> TRAFFIC_PREDICTION_HORIZON_MIN
+
+
 class RoutingEngine:
-    def __init__(self, graph: RoadGraph, osrm: OsrmClient | None = None):
+    def __init__(self, graph: RoadGraph, osrm: OsrmClient | None = None, policy: RoutingPolicy | None = None):
         self.graph = graph
         self.osrm = osrm
+        self.policy = policy
 
     # -------------------------------------------------------------- segment builders
     def _edge_segment(self, e: int) -> Segment:
@@ -178,16 +189,20 @@ class RoutingEngine:
 
     # -------------------------------------------------------------- candidates
     def _graph_candidate(self, o_idx: int, d_idx: int) -> list[Segment] | None:
-        path, cost = self.graph.shortest_path(o_idx, d_idx, "time")
+        kind = "free_open" if self.policy is not None and not self.policy.traffic_aware else "time"
+        path, cost = self.graph.shortest_path(o_idx, d_idx, kind)
         if not path:
             return None
         return [self._edge_segment(e) for e in self.graph.path_edges(path)]
 
-    @staticmethod
-    def _prediction_settings() -> tuple[bool, float]:
+    def _prediction_settings(self) -> tuple[bool, float]:
         from app.config import get_settings
         st = get_settings()
-        return st.traffic_prediction_enabled, st.traffic_prediction_horizon_min
+        p = self.policy
+        if p is None:
+            return st.traffic_prediction_enabled, st.traffic_prediction_horizon_min
+        enabled = p.traffic_aware and (st.traffic_prediction_enabled if p.use_prediction is None else p.use_prediction)
+        return enabled, (st.traffic_prediction_horizon_min if p.horizon_min is None else p.horizon_min)
 
     def _closure_candidate(self, o_idx: int, d_idx: int) -> list[Segment] | None:
         from app.routing.graph import CLOSURE_SPEED_MPS
@@ -309,7 +324,10 @@ class RoutingEngine:
                 rr.through_closure = sorted({s.road_id for s in closed if s.road_id and g.road_state(s.road_id).blocked})
                 results.append(rr)
                 feasible = [rr]
-            best = min(feasible, key=lambda r: (r.eta_s, r.distance_m))
+            if self.policy is not None and not self.policy.traffic_aware:
+                best = min(feasible, key=lambda r: (r.base_duration_s, r.distance_m))   # static: free-flow time
+            else:
+                best = min(feasible, key=lambda r: (r.eta_s, r.distance_m))
             best.alternatives = [dict(r.summary(), selected=r is best) for r in results]
             if compute_shortest:
                 path, length = g.shortest_path(o_idx, d_idx, "length")

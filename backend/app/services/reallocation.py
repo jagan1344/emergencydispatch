@@ -60,6 +60,32 @@ def _route_from_live_position(ar, dest):
     return point, router.route(point, dest, origin_node=origin_node, prefix=prefix)
 
 
+# ---- pure policy (shared by consider_reallocation and the evaluation simulator)
+def needs_reallocation(best_free_eta: float, st) -> bool:
+    """Only considered when the best free suitable unit is missing or slower than the threshold."""
+    return best_free_eta > st.resource_reallocation_threshold_s
+
+
+def donor_eligible(requester_severity: str, requester_priority: float, donor_severity: str, donor_priority: float,
+                   required_capability: str, equipment_level: str, st) -> bool:
+    """A committed unit may be considered only if the donor incident is STRICTLY less severe, the requester's
+    priority exceeds it by the margin, and the unit is suitable for the requester."""
+    if SEV_RANK.get(donor_severity, 0) >= SEV_RANK.get(requester_severity, 0):
+        return False                       # never take a unit from an equally or more critical emergency
+    if (requester_priority or 0) - (donor_priority or 0) < st.reallocation_priority_margin:
+        return False
+    return capability_match(required_capability, equipment_level) > 0
+
+
+def gain_sufficient(best_free_eta: float, diverted_eta: float, st) -> bool:
+    return best_free_eta - diverted_eta >= st.reallocation_min_gain_s
+
+
+def reallocation_outcome(replacement_exists: bool, donor_impact_s: float, st) -> str:
+    """REALLOCATED (automatic) only with a replacement and a bounded donor delay, otherwise ESCALATED."""
+    return "REALLOCATED" if replacement_exists and donor_impact_s <= st.reallocation_max_donor_delay_s else "ESCALATED"
+
+
 def _open_conflict(db: Session, to_id, amb_id: str) -> bool:
     return db.scalar(select(ResourceConflict).where(
         ResourceConflict.to_incident_id == to_id, ResourceConflict.ambulance_id == amb_id,
@@ -75,7 +101,7 @@ def consider_reallocation(db: Session, inc: EmergencyIncident, ranked: list[Scor
     from app.services.routes_service import ACTIVE, decision_eta
     best_free = next((c for c in (ranked or []) if c.suitable), None)
     alt_eta = best_free.eta_s if best_free else math.inf
-    if alt_eta <= st.resource_reallocation_threshold_s:
+    if not needs_reallocation(alt_eta, st):
         return False
     req = inc.required_capability or "BASIC"
     options = []
@@ -86,17 +112,13 @@ def consider_reallocation(db: Session, inc: EmergencyIncident, ranked: list[Scor
         amb = db.get(Ambulance, ar.ambulance_id)
         if donor is None or amb is None or donor.status not in ("DISPATCHED", "EN_ROUTE"):
             continue
-        if SEV_RANK.get(donor.severity, 0) >= SEV_RANK.get(inc.severity, 0):
-            continue                       # never take a unit from an equally or more critical emergency
-        if (inc.priority or 0) - (donor.priority or 0) < st.reallocation_priority_margin:
-            continue
-        if capability_match(req, amb.equipment_level) == 0:
+        if not donor_eligible(inc.severity, inc.priority, donor.severity, donor.priority, req, amb.equipment_level, st):
             continue
         try:
             point, rr = _route_from_live_position(ar, (inc.latitude, inc.longitude))
         except NoRouteError:
             continue
-        if alt_eta - rr.eta_s < st.reallocation_min_gain_s:
+        if not gain_sufficient(alt_eta, rr.eta_s, st):
             continue
         options.append((rr.eta_s, -(donor.priority or 0), ar, donor, amb, point, rr))
     if not options:
@@ -123,7 +145,7 @@ def consider_reallocation(db: Session, inc: EmergencyIncident, ranked: list[Scor
                    f"({donor.severity}, priority {donor.priority:.0f}); best free compatible unit "
                    + (f"needs {_m(alt_eta)}" if math.isfinite(alt_eta) else "does not exist")
                    + f" (threshold {_m(st.resource_reallocation_threshold_s)}), {amb.id} can arrive in {_m(to_eta)}")
-    auto = repl is not None and impact <= st.reallocation_max_donor_delay_s
+    auto = reallocation_outcome(repl is not None, impact, st) == "REALLOCATED"
     if not auto:
         if _open_conflict(db, inc.id, amb.id):
             return False

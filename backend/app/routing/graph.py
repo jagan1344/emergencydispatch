@@ -65,6 +65,7 @@ class RoadGraph:
         self.road_pred_level = ["FREE"] * n_roads
         self.version = 0
         self._cache: dict[tuple, csr_matrix] = {}
+        self._sp_cache: dict[tuple, tuple] = {}      # (kind, version, src) -> (dist, pred), small LRU
         # (u_idx, v_idx) -> edge index (shortest parallel edge wins)
         self.pair_edge: dict[tuple[int, int], int] = {}
         order = np.argsort(self.e_len)
@@ -114,6 +115,7 @@ class RoadGraph:
             self.road_blocked[i] = blocked
             self.version += 1
             self._cache.clear()
+            self._sp_cache.clear()
 
     def set_road_prediction(self, road_id: str, level: str | None, incident_multiplier: float = 1.0) -> None:
         """level None clears the prediction (the road is then predicted to keep its current state)."""
@@ -132,6 +134,7 @@ class RoadGraph:
                 self.road_pred_blocked[i] = level == "BLOCKED"
             self.version += 1
             self._cache.clear()
+            self._sp_cache.clear()
 
     def road_pred_speed_mps(self, road_i: int) -> float:
         if not self.has_pred[road_i]:
@@ -164,6 +167,8 @@ class RoadGraph:
         speed = self.road_limit_kph[self.e_road] / 3.6
         if kind == "free":
             return self.e_len / speed
+        if kind == "free_open":   # static routing: free-flow time, ignoring congestion but avoiding closures
+            return np.where(self.road_blocked[self.e_road], np.inf, self.e_len / speed)
         if kind == "pred":   # predicted traffic where available, current traffic elsewhere
             r = self.e_road
             cur = speed * self.road_factor[r] * self.road_multiplier[r]
@@ -209,7 +214,7 @@ class RoadGraph:
         """Returns (node index path, cost). Empty path + inf when unreachable."""
         if src == dst:
             return [src], 0.0
-        dist, pred = dijkstra(self._matrix(kind), directed=True, indices=src, return_predecessors=True)
+        dist, pred = self._tree_from(src, kind)
         if not np.isfinite(dist[dst]):
             return [], math.inf
         path = [dst]
@@ -220,6 +225,51 @@ class RoadGraph:
             path.append(int(p))
         path.reverse()
         return path, float(dist[dst])
+
+    def _tree_from(self, src: int, kind: str):
+        """Single-source Dijkstra tree, cached per (kind, traffic version, source): routing one origin to several
+        destinations (e.g. hospital candidates) costs a single Dijkstra."""
+        with self.lock:
+            key = (kind, self.version, src)
+            hit = self._sp_cache.get(key)
+            if hit is not None:
+                return hit
+            m = self._matrix(kind)
+            ver = self.version
+        dist, pred = dijkstra(m, directed=True, indices=src, return_predecessors=True)
+        with self.lock:
+            if ver == self.version:
+                if len(self._sp_cache) >= 16:
+                    self._sp_cache.pop(next(iter(self._sp_cache)))
+                self._sp_cache[(kind, ver, src)] = (dist, pred)
+        return dist, pred
+
+    def clone(self) -> "RoadGraph":
+        """Independent copy of the traffic state sharing the immutable network arrays (used by the evaluation
+        simulator so experiments never touch the live graph)."""
+        import copy
+        g = copy.copy(self)
+        g.lock = threading.RLock()
+        g.road_factor, g.road_multiplier = self.road_factor.copy(), self.road_multiplier.copy()
+        g.road_blocked, g.road_level = self.road_blocked.copy(), list(self.road_level)
+        g.has_pred, g.road_pred_factor = self.has_pred.copy(), self.road_pred_factor.copy()
+        g.road_pred_multiplier, g.road_pred_blocked = self.road_pred_multiplier.copy(), self.road_pred_blocked.copy()
+        g.road_pred_level = list(self.road_pred_level)
+        g._cache, g._sp_cache = {}, {}
+        return g
+
+    def reset_traffic(self) -> None:
+        """All roads FREE and no predictions (evaluation clones start every scenario from this state)."""
+        with self.lock:
+            self.road_factor[:] = 1.0
+            self.road_multiplier[:] = 1.0
+            self.road_blocked[:] = False
+            self.road_level = ["FREE"] * len(self.road_ids)
+            self.has_pred[:] = False
+            self.road_pred_level = ["FREE"] * len(self.road_ids)
+            self.version += 1
+            self._cache.clear()
+            self._sp_cache.clear()
 
     def edge_between(self, u: int, v: int, kind: str = "time") -> int | None:
         return self.pair_edge.get((u, v))

@@ -2,9 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import any_user
 from app.config import get_settings
-from app.dispatch.confidence import assess
-from app.dispatch.severity import combine_severity, severity_score
-from app.ml.predict import ModelUnavailable
+from app.dispatch.triage import triage
 from app.models import User
 from app.schemas.schemas import CaseFeatures
 from app.services.state import STATE
@@ -23,17 +21,13 @@ def model_info(_: User = Depends(any_user)):
 def predict(body: CaseFeatures, _: User = Depends(any_user)):
     """ML severity + transparent rule score for a case (no incident is created)."""
     case = body.model_dump()
-    rule = severity_score(case)
-    try:
-        pred = STATE.model.predict(case)
-    except ModelUnavailable as exc:
-        raise HTTPException(503, f"ML model unavailable: {exc}")
-    final, basis = combine_severity(pred.severity, rule.level)
     st = get_settings()
-    ca = assess(pred.probabilities, pred.severity, st.dispatch_confidence_high, st.dispatch_confidence_low,
-                safety_override=basis.startswith("SAFETY_OVERRIDE"))
-    return {"decision": ca.as_dict(),
+    t = triage(case, STATE.model, st.dispatch_confidence_high, st.dispatch_confidence_low)
+    if t.prediction is None:
+        raise HTTPException(503, f"ML model unavailable: {t.ml_error}")
+    pred, rule = t.prediction, t.rule
+    return {"decision": t.assessment.as_dict(),
             "ml": {"severity": pred.severity, "confidence": pred.confidence, "probabilities": pred.probabilities,
                    "model_version": pred.model_version, "latency_ms": round(pred.latency_ms, 2)},
             "rule": {"score": rule.score, "severity": rule.level, "components": rule.components, "reasons": rule.reasons},
-            "final_severity": final, "basis": basis}
+            "final_severity": t.severity, "basis": t.basis}
