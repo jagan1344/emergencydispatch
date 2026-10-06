@@ -7,7 +7,7 @@ import { fmtMin } from "../services/format";
 const NAV = [
   ["/", "Dashboard"], ["/map", "Live Map"], ["/emergencies/new", "New Emergency"], ["/emergencies", "Incidents"],
   ["/ambulances", "Ambulances"], ["/hospitals", "Hospitals"], ["/traffic", "Traffic Control"],
-  ["/analytics", "Analytics"], ["/simulation", "Simulation"], ["/crew", "Crew GPS"],
+  ["/analytics", "Analytics"], ["/simulation", "Simulation"], ["/crew", "Crew GPS"], ["/evaluation", "Evaluation"],
 ];
 
 function Dot({ ok, label, title }: { ok: boolean; label: string; title?: string }) {
