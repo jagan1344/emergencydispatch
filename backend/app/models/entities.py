@@ -354,3 +354,59 @@ class ResourceConflict(Base):
     details: Mapped[dict] = mapped_column(JSONB, default=dict)
     resolved_by: Mapped[str | None] = mapped_column(String(64))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ------------------------------------------------------------------ research evaluation (migration 0005)
+class ExperimentRun(Base):
+    __tablename__ = "experiment_runs"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_name: Mapped[str] = mapped_column(String(80), unique=True)
+    kind: Mapped[str] = mapped_column(String(24))
+    strategies: Mapped[list] = mapped_column(JSONB)
+    configuration: Mapped[dict] = mapped_column(JSONB)
+    scenario_count: Mapped[int] = mapped_column(Integer)
+    random_seed: Mapped[int] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(16), default="RUNNING")
+    metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB)
+    summary: Mapped[dict | None] = mapped_column(JSONB)
+    output_dir: Mapped[str | None] = mapped_column(String(400))
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ExperimentScenario(Base):
+    __tablename__ = "experiment_scenarios"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    experiment_run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("experiment_runs.id", ondelete="CASCADE"))
+    scenario_number: Mapped[int] = mapped_column(Integer)
+    random_seed: Mapped[int] = mapped_column(BigInteger)
+    fingerprint: Mapped[str] = mapped_column(String(32))
+    summary: Mapped[dict] = mapped_column(JSONB)
+    definition: Mapped[dict] = mapped_column(JSONB)
+
+
+class ExperimentResult(Base):
+    __tablename__ = "experiment_results"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    experiment_run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("experiment_runs.id", ondelete="CASCADE"))
+    scenario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("experiment_scenarios.id", ondelete="CASCADE"))
+    strategy: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(16))
+    error: Mapped[str | None] = mapped_column(Text)
+    response_time_s: Mapped[float | None] = mapped_column(Float)
+    patient_wait_s: Mapped[float | None] = mapped_column(Float)
+    initial_eta_s: Mapped[float | None] = mapped_column(Float)
+    actual_travel_s: Mapped[float | None] = mapped_column(Float)
+    reroute_count: Mapped[int | None] = mapped_column(Integer)
+    reroute_improvement_s: Mapped[float | None] = mapped_column(Float)
+    ambulance_utilization: Mapped[float | None] = mapped_column(Float)
+    hospital_wait_s: Mapped[float | None] = mapped_column(Float)
+    critical_delay_s: Mapped[float | None] = mapped_column(Float)
+    resource_conflicts: Mapped[int | None] = mapped_column(Integer)
+    manual_interventions: Mapped[int | None] = mapped_column(Integer)
+    automatic_decision_rate: Mapped[float | None] = mapped_column(Float)
+    metrics: Mapped[dict | None] = mapped_column(JSONB)
+    incidents: Mapped[list | None] = mapped_column(JSONB)
+    runtime_ms: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

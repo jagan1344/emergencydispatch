@@ -14,3 +14,6 @@ data/maps/*.osm
 data/maps/*.part
 __pycache__/
 .pytest_cache/
+
+# experiments started from the Evaluation page / browser tests (re-creatable); CLI runs are kept as evidence
+evaluation/results/api-*/

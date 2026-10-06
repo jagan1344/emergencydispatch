@@ -11,7 +11,7 @@ from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import text
 
-from app.api import analytics, auth, dispatch, emergencies, fleet, health, ml, routes, simulation, traffic
+from app.api import analytics, auth, dispatch, emergencies, evaluation, fleet, health, ml, routes, simulation, traffic
 from app.config import get_settings
 from app.database import get_engine, run_migrations, session_scope
 from app.routing.engine import RoutingEngine
@@ -131,7 +131,7 @@ app.add_middleware(CORSMiddleware, allow_origins=[get_settings().frontend_url, "
                                                   "http://127.0.0.1:5173", "http://localhost:4173"],
                    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 for r in (health.router, auth.router, emergencies.router, fleet.router, routes.router, traffic.router,
-          analytics.router, ml.router, simulation.router, dispatch.router):
+          analytics.router, ml.router, simulation.router, dispatch.router, evaluation.router):
     app.include_router(r)
 
 
