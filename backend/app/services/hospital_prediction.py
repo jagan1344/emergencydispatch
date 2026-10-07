@@ -50,6 +50,8 @@ class HospitalForecast:
     confidence: str
     model_version: str = MODEL_VERSION
     estimated: bool = True
+    # loads come from simulated admissions (dispatches) and simulated discharges - not real hospital occupancy
+    source: str = "SIMULATION"
 
     def as_dict(self) -> dict:
         return asdict(self)

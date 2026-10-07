@@ -87,6 +87,10 @@ def test_large_donor_impact_is_escalated_then_approved(client, dispatcher_header
     assert c["status"] == "WAITING" and "needs dispatcher approval" in c["dispatch_note"]
     open_ = client.get("/api/dispatch/conflicts?open_only=true", headers=viewer_headers).json()
     assert len(open_) == 1 and open_[0]["decision"] == "ESCALATED" and "no replacement" in open_[0]["reason"]
+    cands = open_[0]["details"]["candidates"]                      # every committed unit assessed, choice marked
+    assert any(c["selected"] and c["status"] == "NOT_FEASIBLE" for c in cands)
+    assert all(c["status"] in ("UNAVAILABLE", "UNREACHABLE", "INSUFFICIENT_GAIN", "FEASIBLE", "NOT_FEASIBLE",
+                               "NOT_EVALUATED") and c["reason"] for c in cands)
     assert client.post(f"/api/dispatch/conflicts/{open_[0]['id']}/approve", headers=viewer_headers).status_code == 403
     res = client.post(f"/api/dispatch/conflicts/{open_[0]['id']}/approve", headers=dispatcher_headers).json()
     assert res["decision"] == "APPROVED" and res["resolved_by"] == "dispatcher" and res["id"] == open_[0]["id"]
@@ -150,3 +154,61 @@ def test_escalation_while_free_unit_serves_then_approved_swap(client, dispatcher
     assert ACTIVE.get(u["id"]).incident_id.hex == crit["id"].replace("-", "")
     assert ACTIVE.get(r["id"]).incident_id.hex == donor["id"].replace("-", "")
     assert client.post(f"/api/dispatch/conflicts/{esc[0]['id']}/approve", headers=dispatcher_headers).status_code == 409
+
+
+def test_donor_ranking_prefers_safest_feasible_option():
+    """Several committed units could serve the critical call: a slightly slower unit whose donor keeps an acceptable
+    replacement is chosen over the fastest unit whose donor would be badly delayed; with no feasible option the
+    fastest is escalated (never reallocated silently)."""
+    from types import SimpleNamespace
+
+    from app.services.reallocation import donor_ineligibility, rank_donor_options
+    st = SimpleNamespace(reallocation_max_donor_delay_s=300.0, reallocation_priority_margin=10.0)
+    a = {"to_eta_s": 200.0, "impact_s": 444.0, "replacement": True, "donor_priority": 30}    # fastest, delay 7.4 min
+    b = {"to_eta_s": 260.0, "impact_s": 126.0, "replacement": True, "donor_priority": 25}    # delay 2.1 min
+    c = {"to_eta_s": 150.0, "impact_s": float("inf"), "replacement": False, "donor_priority": 20}
+    choice, outcome = rank_donor_options([a, b, c], st)
+    assert outcome == "REALLOCATED" and choice is b and b["feasible"] and not a["feasible"] and not c["feasible"]
+    choice, outcome = rank_donor_options([a, c], st)
+    assert outcome == "ESCALATED" and choice is c                 # fastest, but needs dispatcher approval
+    assert rank_donor_options([], st) == (None, "NONE")
+    assert "equally or more severe" in donor_ineligibility("CRITICAL", 90, "CRITICAL", 40, "ICU", "ICU", st)
+    assert "priority margin" in donor_ineligibility("CRITICAL", 50, "LOW", 45, "ICU", "ICU", st)
+    assert "unsuitable" in donor_ineligibility("CRITICAL", 90, "LOW", 20, "ICU", "BASIC", st)
+    assert donor_ineligibility("CRITICAL", 90, "LOW", 20, "ICU", "ICU", st) is None
+
+
+REALLOC_CODES = {"DONOR_EQUAL_OR_HIGHER_SEVERITY", "LOWER_PRIORITY_MARGIN", "UNSUITABLE_CAPABILITY", "NO_DRIVABLE_ROUTE",
+                 "INSUFFICIENT_GAIN", "FEASIBLE", "NO_REPLACEMENT", "DONOR_DELAY_TOO_HIGH", "NOT_EVALUATED"}
+
+
+def test_dispatcher_rejection_keeps_donor_unit(client, dispatcher_headers, viewer_headers, fleet, monkeypatch):
+    """An escalated reallocation that the dispatcher rejects is never executed: the donor keeps its unit."""
+    u, r, _, created = fleet
+    _policy(monkeypatch, 0.0)
+    donor = _donor_on_the_way(client, dispatcher_headers, u, created)
+    crit = _new(client, dispatcher_headers, CRITICAL_CASE, u["latitude"] - 0.002, u["longitude"] + 0.001, created)
+    dispatcher_cycle()
+    esc = client.get("/api/dispatch/conflicts?open_only=true", headers=viewer_headers).json()
+    assert len(esc) == 1 and esc[0]["decision"] == "ESCALATED"
+    for c in esc[0]["details"]["candidates"]:                       # structured rejection codes on every candidate
+        assert c["code"] in REALLOC_CODES, c
+    assert client.post(f"/api/dispatch/conflicts/{esc[0]['id']}/reject", headers=viewer_headers).status_code == 403
+    res = client.post(f"/api/dispatch/conflicts/{esc[0]['id']}/reject", headers=dispatcher_headers).json()
+    assert res["decision"] == "REJECTED" and res["resolved_by"] == "dispatcher"
+    assert client.post(f"/api/dispatch/conflicts/{esc[0]['id']}/approve", headers=dispatcher_headers).status_code == 409
+    d = client.get(f"/api/emergencies/{donor['id']}", headers=viewer_headers).json()
+    c = client.get(f"/api/emergencies/{crit['id']}", headers=viewer_headers).json()
+    assert d["assigned_ambulance"] == u["id"] and c["assigned_ambulance"] != u["id"]
+    assert ACTIVE.get(u["id"]).incident_id.hex == donor["id"].replace("-", "")
+
+
+def test_insufficient_capability_donor_is_never_taken():
+    """A committed unit below the critical incident's required capability is ineligible, with its own code."""
+    from types import SimpleNamespace
+
+    from app.services.reallocation import donor_ineligibility
+    st = SimpleNamespace(reallocation_max_donor_delay_s=1e6, reallocation_priority_margin=0.0)
+    why = donor_ineligibility("CRITICAL", 95, "LOW", 10, "ICU", "BASIC", st)
+    assert why and "unsuitable" in why
+    assert donor_ineligibility("CRITICAL", 95, "LOW", 10, "ICU", "ICU", st) is None

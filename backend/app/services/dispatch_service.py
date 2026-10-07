@@ -50,7 +50,7 @@ def candidate_ids(db: Session, inc: EmergencyIncident, k: int) -> list[tuple[str
     return out
 
 
-def evaluate_candidates(db: Session, inc: EmergencyIncident, k: int | None = None
+def evaluate_candidates(db: Session, inc: EmergencyIncident, k: int | None = None, unreachable_out: list | None = None
                         ) -> tuple[list[ScoredCandidate], dict[str, RouteResult]]:
     router = require_router()
     k = k or get_settings().max_dispatch_candidates
@@ -58,13 +58,18 @@ def evaluate_candidates(db: Session, inc: EmergencyIncident, k: int | None = Non
     if not ids:
         raise NoAmbulanceAvailable("No available ambulance: every unit is busy, off duty, low on fuel or offline")
     ambs = {a.id: a for a in db.scalars(select(Ambulance).where(Ambulance.id.in_([i for i, _ in ids])))}
-    inputs, routes = [], {}
+    inputs, routes, unreachable = [], {}, []
     for amb_id, straight in ids:
         a = ambs[amb_id]
         try:
             rr = router.route((a.latitude, a.longitude), (inc.latitude, inc.longitude), compute_shortest=False)
         except NoRouteError as exc:
             log_event(log, "CANDIDATE_UNREACHABLE", ambulance_id=amb_id, incident_id=str(inc.id), error=str(exc))
+            unreachable.append((amb_id, exc))
+            if unreachable_out is not None:
+                unreachable_out.append({"ambulance_id": amb_id, "rejection_codes": [
+                    "NO_DRIVABLE_ROUTE" if getattr(exc, "blocked_roads", None) is not None else "NO_ROUTE"],
+                    "reason": str(exc)[:200]})
             continue
         routes[amb_id] = rr
         inputs.append(CandidateInput(amb_id, a.equipment_level, rr.eta_s, rr.distance_m,
@@ -74,6 +79,12 @@ def evaluate_candidates(db: Session, inc: EmergencyIncident, k: int | None = Non
                                             "current_eta_s": round(rr.adjusted_duration_s, 1),
                                             "fuel_level": round(a.fuel_level, 1), "missions_today": a.missions_today}))
     if not inputs:
+        closed = sorted({r for _, e in unreachable for r in (getattr(e, "blocked_roads", None) or [])})
+        if closed:      # no drivable route (closures) - explicit, never a walking-speed "route"
+            raise NoAmbulanceAvailable(
+                f"ROUTE UNAVAILABLE: no drivable ambulance route to the incident - every route from the "
+                f"{len(unreachable)} available unit(s) crosses closed road(s) {', '.join(closed[:5])}. "
+                f"Dispatcher review required: reopen/escort access or wait for the closure to clear.")
         raise NoAmbulanceAvailable("No available ambulance can reach the incident on the current road network")
     ranked = score_candidates(inputs, inc.required_capability or "BASIC")
     log_event(log, "AMBULANCE_CANDIDATES", incident_id=str(inc.id),
@@ -83,7 +94,7 @@ def evaluate_candidates(db: Session, inc: EmergencyIncident, k: int | None = Non
 
 def _dispatch(db: Session, inc: EmergencyIncident, chosen: ScoredCandidate, rr: RouteResult, ranked: list[ScoredCandidate],
               method: str, decision_ms: float, note: str | None = None, *, reallocated_from=None,
-              origin: tuple[float, float] | None = None) -> Dispatch:
+              origin: tuple[float, float] | None = None, unreachable: list | None = None) -> Dispatch:
     """reallocated_from: the ActiveRoute of a unit diverted from another incident (see services.reallocation);
     the unit is then busy, starts from `origin` (its current position) and the simulator receives ROUTE_UPDATED."""
     amb = db.get(Ambulance, chosen.ambulance_id, with_for_update=True)
@@ -103,6 +114,7 @@ def _dispatch(db: Session, inc: EmergencyIncident, chosen: ScoredCandidate, rr: 
         rr.shortest_distance_m = require_router().shortest_distance(start, (inc.latitude, inc.longitude))
     cand_dicts = [c.as_dict() for c in ranked]
     xai = explain_selection(cand_dicts, amb.id, method)
+    xai["unreachable"] = unreachable or []        # candidates with no drivable route (structured codes)
     dispatch = Dispatch(id=uuid.uuid4(), incident_id=inc.id, ambulance_id=amb.id, method=method,
                         decision_mode=inc.decision_mode, counterfactuals=xai,
                         dispatch_score=chosen.score, eta_to_patient_s=chosen.eta_s, distance_to_patient_m=chosen.distance_m,
@@ -163,7 +175,8 @@ def dispatch_incident(db: Session, inc: EmergencyIncident, ambulance_id: str | N
         from app.services.incident_service import review_incident
         review_incident(db, inc, by)          # pressing "Dispatch now" is an explicit human authorisation
     t0 = time.perf_counter()
-    ranked, routes = evaluate_candidates(db, inc)
+    unreachable: list = []
+    ranked, routes = evaluate_candidates(db, inc, unreachable_out=unreachable)
     note = None
     if ambulance_id:
         pick = next((c for c in ranked if c.ambulance_id == ambulance_id), None)
@@ -174,7 +187,7 @@ def dispatch_incident(db: Session, inc: EmergencyIncident, ambulance_id: str | N
     else:
         pick = ranked[0]
     return _dispatch(db, inc, pick, routes[pick.ambulance_id], ranked, "MANUAL" if ambulance_id else "WEIGHTED_SCORE",
-                     (time.perf_counter() - t0) * 1000, note)
+                     (time.perf_counter() - t0) * 1000, note, unreachable=unreachable)
 
 
 def dispatcher_cycle() -> list[str]:
@@ -220,9 +233,12 @@ def dispatcher_cycle() -> list[str]:
             batch.append(by_id[item[0]])
         t0 = time.perf_counter()
         evals: dict[str, tuple[list[ScoredCandidate], dict[str, RouteResult]]] = {}
+        unreach: dict[str, list] = {}
         for inc in batch:
             try:
-                evals[str(inc.id)] = evaluate_candidates(db, inc, k=6 if len(batch) > 1 else None)
+                unreach[str(inc.id)] = []
+                evals[str(inc.id)] = evaluate_candidates(db, inc, k=6 if len(batch) > 1 else None,
+                                                         unreachable_out=unreach[str(inc.id)])
             except Exception as exc:  # one bad incident must never block the queue
                 reason = str(exc) if isinstance(exc, NoAmbulanceAvailable) else f"dispatch error: {type(exc).__name__}: {exc}"
                 if not isinstance(exc, NoAmbulanceAvailable):
@@ -261,7 +277,8 @@ def dispatcher_cycle() -> list[str]:
                     record_contested_unit(db, ranked[0], chosen, by_id[holder], by_id[iid])
             try:
                 with db.begin_nested():
-                    _dispatch(db, by_id[iid], chosen, routes[amb_id], ranked, method, decision_ms, note)
+                    _dispatch(db, by_id[iid], chosen, routes[amb_id], ranked, method, decision_ms, note,
+                              unreachable=unreach.get(iid))
                 dispatched.append(iid)
             except Exception as exc:
                 log_event(log, "DISPATCH_SKIPPED", incident_id=iid, reason=str(exc))

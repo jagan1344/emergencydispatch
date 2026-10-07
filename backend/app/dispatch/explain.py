@@ -92,13 +92,32 @@ def counterfactual(sel: dict, alt: dict, method: str = "WEIGHTED_SCORE",
                    + (f"; it would arrive {_min(abs(d_eta))} {'later' if d_eta > 0 else 'earlier'}" if abs(d_eta) >= 6 else "")
                    + ".")
     tradeoffs = [f"{aid} is better on {FACTOR_LABEL[k]} ({deltas[k]:+.3f})" for k in better]
+    codes = rejection_codes(sel, alt, deltas, method) if id_key == "ambulance_id" else None
     return {
+        "rejection_codes": codes,
         id_key: aid, "versus": sid, "score": alt["score"], "score_delta": d_score, "eta_s": alt["eta_s"],
         "eta_delta_s": d_eta, "distance_delta_m": round(alt["distance_m"] - sel["distance_m"], 1),
         "factor_deltas": deltas, "worse_on": worse, "better_on": better, "why_not": why_not, "tradeoffs": tradeoffs,
         "outcome": (f"If {aid} had been chosen: arrival in {_min(alt['eta_s'])} "
                     f"({'+' if d_eta >= 0 else '-'}{_min(abs(d_eta))} vs {sid}).") if "eta_s" in alt else None,
     }
+
+
+def rejection_codes(sel: dict, alt: dict, deltas: dict, method: str) -> list[str]:
+    """Structured reasons an alternative ambulance was not selected (derived from the stored candidate values)."""
+    if not alt.get("suitable", True):
+        return ["UNSUITABLE_CAPABILITY"]
+    if alt["score"] < sel["score"]:
+        return [{"ORTOOLS_ASSIGNMENT": "ASSIGNED_TO_HIGHER_PRIORITY", "MANUAL": "MANUAL_OVERRIDE"}.get(
+            method, "UNAVAILABLE_AT_COMMIT")]
+    codes = []
+    if alt["eta_s"] - sel["eta_s"] >= 15:
+        codes.append("TOO_SLOW")
+    for factor, code in (("traffic", "HEAVY_TRAFFIC"), ("capability", "LOWER_CAPABILITY_MATCH"),
+                         ("workload", "HIGHER_WORKLOAD"), ("fuel", "LOW_FUEL"), ("distance", "LONGER_DISTANCE")):
+        if deltas.get(factor, 0) > 0.005:
+            codes.append(code)
+    return codes or ["HIGHER_SCORE"]
 
 
 def explain_selection(ranked: list[dict], selected_id: str, method: str = "WEIGHTED_SCORE",
@@ -133,4 +152,11 @@ def explain_hospital(ranked: list[dict], selected_id: str) -> dict:
             for h in ranked]
     out = explain_selection(rows, selected_id, weights=HOSPITAL_WEIGHTS, id_key="hospital_id")
     out["factors"] = None
+    from app.dispatch.scoring import hospital_why_not
+    best = next(h for h in ranked if h["hospital_id"] == selected_id)
+    from app.dispatch.scoring import hospital_rejection_codes
+    out["why_not"] = [{"hospital_id": h["hospital_id"], "name": h.get("name"),
+                       "reasons": hospital_why_not(best, {**h, "unknown_capabilities": h.get("unknown_capabilities") or []}),
+                       "rejection_codes": hospital_rejection_codes(best, {**h, "unknown_capabilities": h.get("unknown_capabilities") or []})}
+                      for h in ranked if h["hospital_id"] != selected_id]
     return out

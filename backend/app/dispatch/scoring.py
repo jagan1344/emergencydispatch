@@ -156,6 +156,7 @@ class HospitalInput:
     predicted_load: float | None = None
     expected_wait_s: float = 0.0
     forecast: dict | None = None
+    unknown: set = field(default_factory=set)     # capabilities the data source cannot confirm (e.g. OSM)
 
 
 def hospital_capabilities(h: HospitalInput) -> dict[str, bool]:
@@ -171,7 +172,8 @@ def score_hospitals(hs: list[HospitalInput], requirements: list[str]) -> list[di
     out = []
     for h in hs:
         caps = hospital_capabilities(h)
-        missing = [r for r in requirements if not caps[r]]
+        missing = [r for r in requirements if not caps[r]]           # not confirmed (scored as before)
+        unknown = [r for r in missing if r in h.unknown]             # ... of which: unknown, not known to be absent
         load = h.predicted_load if h.predicted_load is not None else h.current_load
         comps = {
             "eta": _ratio(ttt[h.hospital_id], max_eta),
@@ -183,12 +185,15 @@ def score_hospitals(hs: list[HospitalInput], requirements: list[str]) -> list[di
         out.append({"hospital_id": h.hospital_id, "name": h.name, "score": round(score, 4),
                     "components": {k: round(v, 4) for k, v in comps.items()}, "eta_s": round(h.eta_s, 1),
                     "distance_m": round(h.distance_m, 1), "traffic_delay_s": round(h.traffic_delay_s, 1),
-                    "missing_capabilities": missing, "full": h.current_load >= h.emergency_capacity,
+                    "missing_capabilities": missing, "unknown_capabilities": unknown,
+                    "full": h.current_load >= h.emergency_capacity,
                     "expected_wait_s": round(h.expected_wait_s, 1), "time_to_treatment_s": round(ttt[h.hospital_id], 1),
                     "predicted_load": h.predicted_load, "forecast": h.forecast})
-    # capability is a hard constraint whenever a capable hospital exists (as for ambulances); within each group
-    # hospitals that are full are ranked last, then by score
-    out.sort(key=lambda d: (bool(d["missing_capabilities"]), d["full"], d["score"]))
+    # capability is a hard constraint whenever a capable hospital exists (as for ambulances): confirmed-capable
+    # first, then hospitals whose missing capability is only UNKNOWN, then confirmed-lacking; within each group
+    # full hospitals last, then by score
+    out.sort(key=lambda d: (bool(d["missing_capabilities"]),
+                            len(d["missing_capabilities"]) > len(d["unknown_capabilities"]), d["full"], d["score"]))
     return out
 
 
@@ -199,9 +204,12 @@ def explain_hospital(ranked: list[dict], requirements: list[str]) -> str:
                 f"estimated wait {f['expected_wait_min']:.0f} min" if f else f", load {best['components']['load'] * 100:.0f}%")
     lines = [f"Selected {best['name']} ({best['hospital_id']}): ETA {best['eta_s'] / 60:.1f} min, "
              f"{best['distance_m'] / 1000:.2f} km{pred_txt}, score {best['score']:.3f}."]
+    unk = best.get("unknown_capabilities") or []
+    lacking = [c for c in best["missing_capabilities"] if c not in unk]
     lines.append("Patient requires: " + (", ".join(requirements) if requirements else "general emergency care") +
-                 (". All requirements met." if not best["missing_capabilities"]
-                  else f". WARNING - missing at selected hospital: {', '.join(best['missing_capabilities'])}"))
+                 (". All requirements met." if not best["missing_capabilities"] else
+                  (f". WARNING - not available at selected hospital: {', '.join(lacking)}" if lacking else "") +
+                  (f". Capability UNKNOWN (unverified data) at selected hospital: {', '.join(unk)}" if unk else "")))
     closer = [h for h in ranked[1:] if h["distance_m"] < best["distance_m"]]
     if closer:
         c = min(closer, key=lambda h: h["distance_m"])
@@ -217,3 +225,42 @@ def explain_hospital(ranked: list[dict], requirements: list[str]) -> str:
         lines.append(f"Closer option {c['name']} ({c['distance_m'] / 1000:.2f} km) not chosen: "
                      f"{', '.join(why) or 'higher overall score'} (score {c['score']:.3f}).")
     return " ".join(lines)
+
+
+def hospital_why_not(best: dict, other: dict) -> list[str]:
+    """Reasons an alternative hospital ranked below the selected one (only facts from the ranking inputs)."""
+    why = []
+    o_unk = other.get("unknown_capabilities") or []
+    o_lack = [c for c in other["missing_capabilities"] if c not in o_unk]
+    if o_lack and len(other["missing_capabilities"]) > len(best["missing_capabilities"]):
+        why.append("lacks " + ", ".join(o_lack))
+    if o_unk and not best["missing_capabilities"]:
+        why.append("capability unknown: " + ", ".join(o_unk))
+    if other["full"] and not best["full"]:
+        why.append("at capacity")
+    if other["eta_s"] > best["eta_s"] + 30:
+        why.append(f"slower ({other['eta_s'] / 60:.1f} vs {best['eta_s'] / 60:.1f} min)")
+    if other.get("expected_wait_s", 0) > best.get("expected_wait_s", 0) + 60:
+        why.append(f"longer estimated wait ({other['expected_wait_s'] / 60:.0f} vs {best['expected_wait_s'] / 60:.0f} min)")
+    if other["components"]["load"] > best["components"]["load"] + 0.05:
+        why.append(f"higher (predicted) load ({other['components']['load'] * 100:.0f}% vs {best['components']['load'] * 100:.0f}%)")
+    return why or [f"higher overall score ({other['score']:.3f} vs {best['score']:.3f})"]
+
+
+def hospital_rejection_codes(best: dict, other: dict) -> list[str]:
+    """Structured counterpart of hospital_why_not."""
+    codes = []
+    o_unk = other.get("unknown_capabilities") or []
+    o_lack = [c for c in other["missing_capabilities"] if c not in o_unk]
+    if o_lack and len(other["missing_capabilities"]) > len(best["missing_capabilities"]):
+        codes.append("LACKS_CAPABILITY")
+    if o_unk and not best["missing_capabilities"]:
+        codes.append("CAPABILITY_UNKNOWN")
+    if other["full"] and not best["full"]:
+        codes.append("HOSPITAL_FULL")
+    if other["eta_s"] > best["eta_s"] + 30:
+        codes.append("TOO_SLOW")
+    if (other.get("expected_wait_s", 0) > best.get("expected_wait_s", 0) + 60
+            or other["components"]["load"] > best["components"]["load"] + 0.05):
+        codes.append("HOSPITAL_CONGESTION")
+    return codes or ["HIGHER_SCORE"]

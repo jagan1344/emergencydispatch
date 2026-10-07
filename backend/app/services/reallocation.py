@@ -66,15 +66,42 @@ def needs_reallocation(best_free_eta: float, st) -> bool:
     return best_free_eta > st.resource_reallocation_threshold_s
 
 
+def donor_ineligibility(requester_severity: str, requester_priority: float, donor_severity: str, donor_priority: float,
+                        required_capability: str, equipment_level: str, st) -> str | None:
+    """None if the committed unit may be considered, else the reason it may not."""
+    if SEV_RANK.get(donor_severity, 0) >= SEV_RANK.get(requester_severity, 0):
+        return f"committed to an equally or more severe incident ({donor_severity})"   # never taken
+    if (requester_priority or 0) - (donor_priority or 0) < st.reallocation_priority_margin:
+        return f"priority margin below {st.reallocation_priority_margin:.0f}"
+    if capability_match(required_capability, equipment_level) == 0:
+        return f"{equipment_level} unit unsuitable for the required {required_capability} capability"
+    return None
+
+
 def donor_eligible(requester_severity: str, requester_priority: float, donor_severity: str, donor_priority: float,
                    required_capability: str, equipment_level: str, st) -> bool:
     """A committed unit may be considered only if the donor incident is STRICTLY less severe, the requester's
     priority exceeds it by the margin, and the unit is suitable for the requester."""
-    if SEV_RANK.get(donor_severity, 0) >= SEV_RANK.get(requester_severity, 0):
-        return False                       # never take a unit from an equally or more critical emergency
-    if (requester_priority or 0) - (donor_priority or 0) < st.reallocation_priority_margin:
-        return False
-    return capability_match(required_capability, equipment_level) > 0
+    return donor_ineligibility(requester_severity, requester_priority, donor_severity, donor_priority,
+                               required_capability, equipment_level, st) is None
+
+
+MAX_IMPACT_EVALUATIONS = 3   # donor-impact (replacement) evaluations per conflict, fastest options first
+
+
+def rank_donor_options(options: list[dict], st) -> tuple[dict | None, str]:
+    """options: eligible units with enough gain, each {"to_eta_s", "impact_s", "replacement": bool, "donor_priority"}.
+    Safest feasible first: among options whose outcome is REALLOCATED (replacement exists and donor delay within
+    the limit) the fastest to the requester (then the smallest donor delay) is chosen; if none is feasible the
+    fastest option is ESCALATED to the dispatcher (no change without approval)."""
+    if not options:
+        return None, "NONE"
+    for o in options:
+        o["feasible"] = reallocation_outcome(o["replacement"], o["impact_s"], st) == "REALLOCATED"
+    feasible = [o for o in options if o["feasible"]]
+    if feasible:
+        return min(feasible, key=lambda o: (o["to_eta_s"], o["impact_s"], -o["donor_priority"])), "REALLOCATED"
+    return min(options, key=lambda o: (o["to_eta_s"], -o["donor_priority"])), "ESCALATED"
 
 
 def gain_sufficient(best_free_eta: float, diverted_eta: float, st) -> bool:
@@ -104,6 +131,7 @@ def consider_reallocation(db: Session, inc: EmergencyIncident, ranked: list[Scor
     if not needs_reallocation(alt_eta, st):
         return False
     req = inc.required_capability or "BASIC"
+    assessed: list[dict] = []          # every committed unit and why it is / is not an option (trace)
     options = []
     for ar in ACTIVE.all():
         if ar.leg != "TO_PATIENT" or ar.incident_id is None or ar.incident_id == inc.id:
@@ -112,32 +140,71 @@ def consider_reallocation(db: Session, inc: EmergencyIncident, ranked: list[Scor
         amb = db.get(Ambulance, ar.ambulance_id)
         if donor is None or amb is None or donor.status not in ("DISPATCHED", "EN_ROUTE"):
             continue
-        if not donor_eligible(inc.severity, inc.priority, donor.severity, donor.priority, req, amb.equipment_level, st):
+        row = {"ambulance_id": amb.id, "donor": donor.reference, "donor_severity": donor.severity}
+        why = donor_ineligibility(inc.severity, inc.priority, donor.severity, donor.priority, req, amb.equipment_level, st)
+        if why:
+            code = ("DONOR_EQUAL_OR_HIGHER_SEVERITY" if "severe" in why else "LOWER_PRIORITY_MARGIN" if "margin" in why
+                    else "UNSUITABLE_CAPABILITY")
+            assessed.append({**row, "status": "UNAVAILABLE", "code": code, "reason": why})
             continue
         try:
             point, rr = _route_from_live_position(ar, (inc.latitude, inc.longitude))
-        except NoRouteError:
+        except NoRouteError as exc:
+            assessed.append({**row, "status": "UNREACHABLE", "code": "NO_DRIVABLE_ROUTE", "reason": str(exc)[:160]})
             continue
         if not gain_sufficient(alt_eta, rr.eta_s, st):
+            assessed.append({**row, "status": "INSUFFICIENT_GAIN", "code": "INSUFFICIENT_GAIN", "to_eta_s": round(rr.eta_s, 1),
+                             "reason": f"saves less than {_m(st.reallocation_min_gain_s)}"})
             continue
-        options.append((rr.eta_s, -(donor.priority or 0), ar, donor, amb, point, rr))
+        options.append({**row, "to_eta_s": rr.eta_s, "donor_priority": donor.priority or 0, "_ar": ar, "_donor": donor,
+                        "_amb": amb, "_point": point, "_rr": rr})
     if not options:
         return False
-    to_eta, _, ar, donor, amb, point, rr = min(options, key=lambda o: (o[0], o[1]))
-    donor_before = decision_eta(ar)
-    log_event(log, "RESOURCE_CONFLICT_DETECTED", ambulance_id=amb.id, from_incident=str(donor.id),
-              to_incident=str(inc.id), to_eta_s=round(to_eta, 1), alternative_eta_s=None if math.isinf(alt_eta) else round(alt_eta, 1))
-    # impact on the donor incident: its best replacement from the free fleet
-    try:
-        d_ranked, d_routes = evaluate_candidates(db, donor)
-        repl = next((c for c in d_ranked if c.suitable), d_ranked[0])
-    except NoAmbulanceAvailable:
-        d_ranked, d_routes, repl = [], {}, None
+    # donor impact (best replacement from the free fleet) for the fastest options
+    options.sort(key=lambda o: (o["to_eta_s"], -o["donor_priority"]))
+    for o in options[:MAX_IMPACT_EVALUATIONS]:
+        before = decision_eta(o["_ar"])
+        try:
+            d_ranked, d_routes = evaluate_candidates(db, o["_donor"])
+            repl = next((c for c in d_ranked if c.suitable), d_ranked[0])
+        except NoAmbulanceAvailable:
+            d_ranked, d_routes, repl = [], {}, None
+        o.update(impact_s=(repl.eta_s if repl else math.inf) - before, replacement=repl is not None, _before=before,
+                 _repl=repl, _d_ranked=d_ranked, _d_routes=d_routes)
+    evaluated = options[:MAX_IMPACT_EVALUATIONS]
+    choice, outcome = rank_donor_options(evaluated, st)
+    for o in options:
+        entry = {k: v for k, v in o.items() if not k.startswith("_") and k != "donor_priority"}
+        entry["to_eta_s"] = round(o["to_eta_s"], 1)
+        if "impact_s" in o:
+            entry["donor_delay_s"] = None if math.isinf(o["impact_s"]) else round(o["impact_s"], 1)
+            entry.pop("impact_s", None)
+            entry["status"] = "FEASIBLE" if o.get("feasible") else "NOT_FEASIBLE"
+            entry["code"] = ("FEASIBLE" if o.get("feasible") else "NO_REPLACEMENT" if not o["replacement"]
+                             else "DONOR_DELAY_TOO_HIGH")
+            entry["reason"] = ("replacement available, donor delay within limit" if o.get("feasible") else
+                               "no replacement for the donor" if not o["replacement"] else
+                               f"donor delay above {_m(st.reallocation_max_donor_delay_s)}")
+        else:
+            entry["status"], entry["reason"] = "NOT_EVALUATED", f"only the {MAX_IMPACT_EVALUATIONS} fastest options are assessed"
+            entry["code"] = "NOT_EVALUATED"
+        entry["selected"] = o is choice
+        assessed.append(entry)
+    log_event(log, "RESOURCE_REALLOCATION_EVALUATED", incident=str(inc.id), outcome=outcome,
+              candidates=len(assessed), codes=sorted({a.get("code") for a in assessed if a.get("code")}),
+              selected=choice["_amb"].id if choice else None)
+    ar, donor, amb, point, rr = choice["_ar"], choice["_donor"], choice["_amb"], choice["_point"], choice["_rr"]
+    to_eta, donor_before, repl = choice["to_eta_s"], choice["_before"], choice["_repl"]
+    d_ranked, d_routes = choice["_d_ranked"], choice["_d_routes"]
     donor_after = repl.eta_s if repl else math.inf
-    impact = donor_after - donor_before
+    impact = choice["impact_s"]
+    log_event(log, "RESOURCE_CONFLICT_DETECTED", ambulance_id=amb.id, from_incident=str(donor.id),
+              to_incident=str(inc.id), to_eta_s=round(to_eta, 1), alternative_eta_s=None if math.isinf(alt_eta) else round(alt_eta, 1),
+              candidates=[{k: a.get(k) for k in ("ambulance_id", "status", "donor_delay_s")} for a in assessed])
     details = {"requester": {"reference": inc.reference, "severity": inc.severity, "priority": inc.priority},
                "donor": {"reference": donor.reference, "severity": donor.severity, "priority": donor.priority},
                "replacement_ambulance": repl.ambulance_id if repl else None,
+               "candidates": assessed,
                "policy": {"threshold_s": st.resource_reallocation_threshold_s, "min_gain_s": st.reallocation_min_gain_s,
                           "max_donor_delay_s": st.reallocation_max_donor_delay_s,
                           "priority_margin": st.reallocation_priority_margin}}
@@ -145,7 +212,7 @@ def consider_reallocation(db: Session, inc: EmergencyIncident, ranked: list[Scor
                    f"({donor.severity}, priority {donor.priority:.0f}); best free compatible unit "
                    + (f"needs {_m(alt_eta)}" if math.isfinite(alt_eta) else "does not exist")
                    + f" (threshold {_m(st.resource_reallocation_threshold_s)}), {amb.id} can arrive in {_m(to_eta)}")
-    auto = reallocation_outcome(repl is not None, impact, st) == "REALLOCATED"
+    auto = outcome == "REALLOCATED"
     if not auto:
         if _open_conflict(db, inc.id, amb.id):
             return False

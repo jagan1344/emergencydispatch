@@ -55,7 +55,18 @@ def trace_entry(e: SystemEvent) -> dict | None:
     elif t == "ROUTE_RECALCULATED":
         title = f"Automatic reroute — saved {_m(d.get('time_saved_s'))}" if d.get("time_saved_s") is not None \
             else "Automatic reroute"
-        detail = f"{d.get('reason')}; old ETA {_m(d.get('old_eta_s'))} → new ETA {_m(d.get('new_eta_s'))}"
+        detail = (f"{d.get('reason')}; old ETA {_m(d.get('old_eta_s'))} → new ETA {_m(d.get('new_eta_s'))}"
+                  + (f"; re-planned from GPS {d['position']}" if d.get("position") else ""))
+    elif t == "ROUTE_UNAVAILABLE":
+        title = f"No drivable route for {d.get('ambulance_id')} — dispatcher review required"
+        detail = (f"closed road(s) {', '.join(d.get('blocked_roads') or [])}; alternative exists: "
+                  f"{'yes' if d.get('alternative_exists') else 'no'}; position {d.get('position')}")
+    elif t == "ROUTE_RESUMED":
+        title = {"RESUME": "Simulator restarted — route resumed from persisted position",
+                 "REPLANNED_FROM_GPS": "Simulator restarted — route re-planned from last GPS fix",
+                 "ROUTE_UNAVAILABLE": "Simulator restarted — no drivable route from last GPS fix"}.get(
+            d.get("decision"), f"Route resume: {d.get('decision')}")
+        detail = f"progress {d.get('progress_m')} m, GPS {d.get('gps')}, offset {d.get('offset_m')} m"
     elif t == "AMBULANCE_STATUS_CHANGED":
         title = f"{d.get('ambulance_id')} {d.get('old_status')} → {d.get('status')}"
     elif t == "HOSPITAL_CONGESTION_PREDICTED":
@@ -102,6 +113,23 @@ def build_decision(db: Session, inc: EmergencyIncident) -> dict:
         "model_version": pred.model_version if pred else STATE.model.version,
         "thresholds": {"high": st.dispatch_confidence_high, "low": st.dispatch_confidence_low},
         "reviewed_by": inc.reviewed_by, "reviewed_at": inc.reviewed_at}
+    ca = db.scalars(select(SystemEvent).where(SystemEvent.incident_id == inc.id,
+                                              SystemEvent.event_type == "CONFIDENCE_ASSESSED")
+                    .order_by(SystemEvent.created_at.desc())).first()
+    cp = (ca.payload or {}) if ca else {}
+    conf = out["confidence"]
+    conf["raw_probability"] = cp.get("raw_probability")
+    conf["calibration"] = cp.get("calibration")
+    for k in ("calibration_version", "raw_probabilities", "calibrated_probabilities", "raw_confidence",
+              "calibrated_confidence"):
+        conf[k] = cp.get(k)
+    conf["probability_type"] = cp.get("probability_type") or ("raw model probability" if inc.ml_confidence is not None else None)
+    conf["label"] = "Model confidence (class probability) - not clinical certainty"
+    prob = inc.ml_confidence
+    conf["threshold_applied"] = None if prob is None else (
+        f">= auto-dispatch threshold {st.dispatch_confidence_high:.2f}" if prob >= st.dispatch_confidence_high else
+        f"< review threshold {st.dispatch_confidence_low:.2f}" if prob < st.dispatch_confidence_low else
+        f"between {st.dispatch_confidence_low:.2f} and {st.dispatch_confidence_high:.2f}")
     disp = db.scalars(select(Dispatch).where(Dispatch.incident_id == inc.id).order_by(Dispatch.created_at.desc())).first()
     if disp is None:
         out["dispatch"] = None
@@ -122,6 +150,11 @@ def build_decision(db: Session, inc: EmergencyIncident) -> dict:
                       "prediction_horizon_min": r.prediction_horizon_min, "alternatives": r.alternatives,
                       "reroute_of": str(r.reroute_of) if r.reroute_of else None, "reroute_reason": r.reroute_reason,
                       "old_eta_s": r.old_eta_s, "time_saved_s": r.time_saved_s} for r in routes]
+    from app.api.routes import route_dict
+    for d, r in zip(out["routes"], routes):        # live route state: status, checkpoint, remaining distance
+        rd = route_dict(r, db)
+        for k in ("status", "unavailable_reason", "checkpoint", "remaining_m", "reroute_count"):
+            d[k] = rd.get(k)
     out["reroutes"] = [r for r in out["routes"] if r["reroute_of"]]
     out["traffic"] = live_traffic_view(inc)
     out["hospital"] = None if disp is None or not disp.hospital_candidates else {
@@ -138,8 +171,36 @@ def build_decision(db: Session, inc: EmergencyIncident) -> dict:
     events = db.scalars(select(SystemEvent).where(SystemEvent.incident_id == inc.id)
                         .order_by(SystemEvent.created_at, SystemEvent.id)).all()
     out["trace"] = [x for x in (trace_entry(e) for e in events) if x]
+    out["summary"] = decision_summary(out, events)
     from app.services.events import _jsonable
     return _jsonable(out)        # infinite ETAs (closed roads) -> null; JSON has no Infinity
+
+
+def decision_summary(out: dict, events: list) -> dict:
+    """What the system considered, why it chose what it chose, and which constraints applied (all from stored data)."""
+    kinds = {e.event_type for e in events}
+    d, h = out.get("dispatch"), out.get("hospital")
+    xai = (d or {}).get("explanation") or {}
+    active = next((r for r in out["routes"] if r["active"]), None)
+    unavailable = [e.payload for e in events if e.event_type == "ROUTE_UNAVAILABLE"]
+    return {
+        "considered": {
+            "severity_model": out["confidence"]["confidence"] is not None,
+            "ambulance_candidates": (d or {}).get("candidates_considered", 0),
+            "ambulances_without_drivable_route": len(xai.get("unreachable") or []),
+            "hospital_candidates": len((h or {}).get("candidates") or []),
+            "reallocation_considered": bool(out["conflicts"]) or bool(kinds & {"RESOURCE_CONFLICT_DETECTED",
+                                                                              "RESOURCE_REALLOCATED", "RESOURCE_ESCALATED"}),
+            "rerouting_considered": bool(kinds & {"ROUTE_CHECK", "ROUTE_DEGRADATION_DETECTED", "ROUTE_RECALCULATED"}),
+            "reroutes_applied": len(out["reroutes"]),
+        },
+        "why": {"ambulance": xai.get("summary"), "hospital": (h or {}).get("explanation"),
+                "decision_mode": out["confidence"]["decision_mode"], "decision_reason": out["confidence"]["decision_reason"]},
+        "constraints": (d or {}).get("constraints") or [],
+        "route_status": active["status"] if active else None,
+        "route_unavailable": (unavailable[-1] if unavailable and active and active.get("status") == "UNAVAILABLE"
+                              else None),
+    }
 
 
 def live_traffic_view(inc: EmergencyIncident) -> dict | None:

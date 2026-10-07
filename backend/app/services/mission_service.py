@@ -95,7 +95,7 @@ def select_hospital(db: Session, inc: EmergencyIncident, origin: tuple[float, fl
         routes[hid] = rr
         inputs.append(HospitalInput(hid, h.name, rr.eta_s, max(0.0, rr.eta_s - rr.base_duration_s), rr.distance_m, h.current_load,
                                     h.emergency_capacity, h.icu_available, h.trauma_available, h.cardiac_available,
-                                    h.stroke_available))
+                                    h.stroke_available, unknown=unknown_capabilities(h)))
     from app.services.hospital_prediction import predict_hospitals
     forecasts = predict_hospitals(db, horizons_by_hospital={h.hospital_id: h.eta_s / 60 for h in inputs})
     for h in inputs:
@@ -127,9 +127,13 @@ def load_patient_and_transport(db: Session, inc: EmergencyIncident, amb: Ambulan
                              for h in ranked if h.get("forecast"))[:900],
         "forecasts": [h.get("forecast") for h in ranked]}, incident_id=inc.id, ambulance_id=amb.id)
     if best["missing_capabilities"] or best["full"]:
+        unk = best.get("unknown_capabilities") or []
+        lacking = [c for c in best["missing_capabilities"] if c not in unk]
+        parts = ([f"lacks {', '.join(lacking)}"] if lacking else []) + \
+                ([f"capability UNKNOWN (unverified hospital data): {', '.join(unk)}"] if unk else []) + \
+                (["at capacity"] if best["full"] else [])
         emit(db, "HOSPITAL_WARNING", {"incident_id": str(inc.id), "reference": inc.reference,
-                                      "warning": f"No fully suitable hospital: {best['name']} lacks "
-                                                 f"{', '.join(best['missing_capabilities']) or 'capacity'}"},
+                                      "warning": f"No fully suitable hospital confirmed: {best['name']} - {'; '.join(parts)}"},
              incident_id=inc.id, ambulance_id=amb.id)
     hosp = db.get(Hospital, best["hospital_id"], with_for_update=True)
     hosp.current_load += 1
@@ -243,12 +247,41 @@ def cancel_incident(db: Session, inc: EmergencyIncident, by: str | None = None) 
     set_status(db, inc, "CANCELLED", by=by)
 
 
+CAPABILITY_FIELDS = {"icu": "icu_available", "trauma": "trauma_available", "cardiac": "cardiac_available",
+                     "stroke": "stroke_available"}
+
+
+def capability_status(h: Hospital) -> dict[str, str]:
+    """YES / NO only where the data source can say so. OSM tags are evidence for YES; their absence is UNKNOWN,
+    never NO (OSM rarely tags ICU / trauma / cardiac / stroke units). SYNTHETIC values are the demo seed's."""
+    src = h.data_source or "SYNTHETIC"
+    out = {}
+    for cap, f in CAPABILITY_FIELDS.items():
+        v = getattr(h, f)
+        has = (v or 0) > 0 if cap == "icu" else bool(v)
+        if src == "VERIFIED":
+            out[cap] = "VERIFIED_YES" if has else "VERIFIED_NO"
+        elif src == "OSM":
+            out[cap] = "OSM_TAG_YES" if has else "UNKNOWN"
+        else:
+            out[cap] = "SIMULATED_YES" if has else "SIMULATED_NO"
+    return out
+
+
+def unknown_capabilities(h: Hospital) -> set[str]:
+    return {c for c, v in capability_status(h).items() if v == "UNKNOWN"}
+
+
 def hospital_dict(h: Hospital) -> dict:
     return {"id": h.id, "name": h.name, "latitude": h.latitude, "longitude": h.longitude,
             "emergency_capacity": h.emergency_capacity, "icu_available": h.icu_available,
             "trauma_available": h.trauma_available, "cardiac_available": h.cardiac_available,
             "stroke_available": h.stroke_available, "current_load": h.current_load, "status": h.status,
-            "load_pct": round(100 * h.current_load / h.emergency_capacity, 1), "updated_at": h.updated_at}
+            "load_pct": round(100 * h.current_load / h.emergency_capacity, 1), "updated_at": h.updated_at,
+            "data_source": h.data_source, "capability_status": capability_status(h),
+            "capacity_source": "VERIFIED" if h.data_source == "VERIFIED" else
+            ("ESTIMATED (OSM beds/10 or default 20)" if h.data_source == "OSM" else "SIMULATED"),
+            "load_source": "SIMULATION"}
 
 
 def hospital_discharge(db: Session, hospital_id: str, count: int = 1) -> None:
