@@ -44,6 +44,10 @@ def on_message(topic: str, payload: dict, retained: bool) -> None:
             from app.services.mission_service import hospital_discharge
             with session_scope() as db:
                 hospital_discharge(db, parts[1], int(payload.get("count", 1)))
+    elif topic == "simulator/hello" and not retained:
+        if payload.get("component") == "ambulance":    # a simulator (re)started: resume live routes where they are
+            from app.services.routes_service import resume_simulated_routes
+            resume_simulated_routes()
     elif topic == "simulator/heartbeat":
         if payload.get("component") == "traffic":
             STATE.traffic_sim_last_seen = time.time()

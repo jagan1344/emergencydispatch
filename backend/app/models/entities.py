@@ -185,6 +185,7 @@ class AmbulanceLocation(Base):
     location = mapped_column(Geography("POINT", srid=4326))
     speed_kph: Mapped[float] = mapped_column(Float, default=0)
     route_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    progress_m: Mapped[float | None] = mapped_column(Float)                  # migration 0006
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -239,6 +240,14 @@ class Route(Base):
     reroute_reason: Mapped[str | None] = mapped_column(String(255))
     old_eta_s: Mapped[float | None] = mapped_column(Float)
     time_saved_s: Mapped[float | None] = mapped_column(Float)
+    progress_m: Mapped[float] = mapped_column(Float, default=0.0)            # migration 0006 (restart recovery)
+    progress_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_eta_s: Mapped[float | None] = mapped_column(Float)
+    checkpoint_lat: Mapped[float | None] = mapped_column(Float)              # migration 0007 (route checkpoint)
+    checkpoint_lon: Mapped[float | None] = mapped_column(Float)
+    checkpoint_segment: Mapped[int | None] = mapped_column(Integer)
+    unavailable_reason: Mapped[str | None] = mapped_column(String(500))
+    unavailable_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class RouteSegment(Base):

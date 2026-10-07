@@ -79,11 +79,42 @@ def test_ortools_assignment_serves_high_priority_first():
 
 
 def test_closure_fallback_instead_of_stranding_patient():
-    """Destination on a dead end whose only access road is closed: route through the closure at 5 km/h."""
+    """Opt-in legacy behaviour (CLOSURE_ACCESS_FALLBACK=true): destination on a dead end whose only access road is
+    closed -> route through the closure at 5 km/h (escorted access)."""
+    from app.routing.engine import RoutingPolicy
     g = diamond()
-    eng = RoutingEngine(g)
+    eng = RoutingEngine(g, policy=RoutingPolicy(closure_access=True))
     g.set_road_state("R1", "BLOCKED", 1.0, True)
     g.set_road_state("R2", "BLOCKED", 1.0, True)
     r = eng.route((0.0, 0.0), (0.0, 0.010))
     assert r.engine == "graph-closure" and r.through_closure and r.feasible
     assert r.adjusted_duration_s > 400            # 600 m of closed road at 5 km/h = 432 s
+
+
+def test_no_drivable_route_is_reported_not_walked():
+    """Default: when every route crosses a closed road the router raises NoDrivableRouteError naming the closures
+    (dispatcher review) instead of inventing a walking-speed ambulance route."""
+    from app.routing.engine import NoDrivableRouteError, NoRouteError
+    g = diamond()
+    eng = RoutingEngine(g)
+    g.set_road_state("R1", "BLOCKED", 1.0, True)
+    g.set_road_state("R2", "BLOCKED", 1.0, True)
+    with pytest.raises(NoDrivableRouteError) as exc:
+        eng.route((0.0, 0.0), (0.0, 0.010))
+    assert isinstance(exc.value, NoRouteError)                    # existing handlers keep working
+    assert set(exc.value.blocked_roads) & {"R1", "R2"} and "dispatcher review" in str(exc.value)
+    g.set_road_state("R2", "FREE", 1.0, False)                    # one access reopens -> ordinary route again
+    r = eng.route((0.0, 0.0), (0.0, 0.010))
+    assert r.feasible and not r.through_closure and r.engine != "graph-closure"
+
+
+def test_one_closure_uses_the_alternate_road():
+    """Only one access road closed: an ordinary drivable detour is used, never the closure or a walking fallback."""
+    g = diamond()
+    eng = RoutingEngine(g)
+    normal = eng.route((0.0, 0.0), (0.0, 0.010))
+    g.set_road_state("R1", "BLOCKED", 1.0, True)
+    alt = eng.route((0.0, 0.0), (0.0, 0.010))
+    assert alt.feasible and not alt.through_closure and alt.engine != "graph-closure"
+    assert all(s.road_id != "R1" for s in alt.segments)
+    assert alt.adjusted_duration_s >= normal.adjusted_duration_s

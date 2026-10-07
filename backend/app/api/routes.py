@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import any_user
 from app.database import get_db
 from app.models import Route, RouteSegment, User
-from app.routing.engine import NoRouteError
+from app.routing.engine import NoDrivableRouteError, NoRouteError
 from app.routing.eta import route_efficiency
 from app.schemas.schemas import RouteRequest
 from app.services.events import _jsonable
@@ -35,10 +35,19 @@ def route_dict(r: Route, db: Session | None = None, with_segments: bool = False)
          "created_at": r.created_at, "superseded_at": r.superseded_at, "completed_at": r.completed_at,
          "reroute_of": str(r.reroute_of) if r.reroute_of else None, "reroute_reason": r.reroute_reason,
          "old_eta_s": r.old_eta_s, "time_saved_s": r.time_saved_s, "alternatives": r.alternatives, "geometry": coords}
+    d["status"] = ("COMPLETED" if r.completed_at else "SUPERSEDED" if r.superseded_at else
+                   ("UNAVAILABLE" if r.unavailable_at else "ACTIVE") if r.active else "INACTIVE")
+    d["unavailable_reason"] = r.unavailable_reason
+    d["checkpoint"] = None if r.progress_updated_at is None else {   # persisted restart-recovery checkpoint
+        "progress_m": round(r.progress_m or 0.0, 1), "segment": r.checkpoint_segment,
+        "position": [r.checkpoint_lat, r.checkpoint_lon] if r.checkpoint_lat is not None else None,
+        "eta_s": r.last_eta_s, "saved_at": r.progress_updated_at}
     ar = ACTIVE.get(r.ambulance_id) if r.ambulance_id else None
     if ar and ar.route_id == r.id:
         d["progress_m"] = round(ar.progress_m, 1)
         d["eta_remaining_s"] = round(remaining_eta(ar), 1)
+        d["remaining_m"] = round(max(0.0, ar.total_m - ar.progress_m), 1)
+        d["reroute_count"] = ar.reroutes
     if with_segments and db is not None:
         d["segments"] = [{"seq": s.seq, "road_id": s.road_id, "length_m": round(s.length_m, 1),
                           "base_speed_kph": s.base_speed_kph, "planned_speed_kph": round(s.planned_speed_kph, 1),
@@ -78,6 +87,8 @@ def calculate(body: RouteRequest, _: User = Depends(any_user), db: Session = Dep
     d = (body.destination.latitude, body.destination.longitude)
     try:
         rr = router_.route(o, d)
+    except NoDrivableRouteError as exc:      # structured: status ROUTE_UNAVAILABLE, reason, blocked roads, endpoints
+        raise HTTPException(409, exc.as_dict())
     except NoRouteError as exc:
         raise HTTPException(422, str(exc))
     r = save_route(db, rr, leg="PREVIEW", origin=o, dest=d)

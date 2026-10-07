@@ -40,6 +40,7 @@ class ActiveRoute:
     last_reroute_at: float | None = None                 # wall time.time() of the last re-route
     abandoned: list[frozenset] = field(default_factory=list)   # road sets of recently abandoned routes
     reroutes: int = 0
+    unavailable_for: frozenset | None = None   # closures already reported as ROUTE_UNAVAILABLE for this route
 
     @property
     def total_m(self) -> float:
@@ -167,7 +168,7 @@ def load_active_routes(db: Session) -> int:
                     for s in segs]
         _fill_coords(segments, r)
         ACTIVE.set(ActiveRoute(r.id, r.ambulance_id, r.incident_id, r.leg, segments, (r.dest_lat, r.dest_lon),
-                               r.adjusted_duration_s))
+                               r.adjusted_duration_s, progress_m=float(r.progress_m or 0.0)))   # persisted progress
     return len(routes)
 
 
@@ -197,6 +198,15 @@ def position_on_route(ar: ActiveRoute, progress_m: float) -> tuple[int, float, t
             return k, frac, interpolate(a[0], a[1], b[0], b[1], frac)
         cum += s.length_m
     return 0, 0.0, ar.dest
+
+
+def segment_index(ar: ActiveRoute, progress_m: float) -> int:
+    cum = 0.0
+    for k, s in enumerate(ar.segments):
+        if cum + s.length_m >= progress_m:
+            return k
+        cum += s.length_m
+    return max(0, len(ar.segments) - 1)
 
 
 def remaining_eta(ar: ActiveRoute, current: bool = True) -> float:
@@ -267,19 +277,32 @@ def check_routes(affected_roads: set[str] | None = None, accident_roads: set[str
         if not reason:
             continue
         ar.considered_roads |= trig.mark_considered
+        known_unavailable = bool(blocked_ahead) and ar.unavailable_for == frozenset(blocked_ahead)
+        if ar.unavailable_for and not blocked_ahead:      # closure cleared: the route is drivable again
+            ar.unavailable_for = None
+            with session_scope() as db:
+                row = db.get(Route, ar.route_id)
+                if row is not None and row.unavailable_at is not None:
+                    row.unavailable_reason, row.unavailable_at = None, None
+                    emit(db, "ROUTE_AVAILABLE", {"ambulance_id": ar.ambulance_id, "route_id": str(ar.route_id),
+                                                 "incident_id": str(ar.incident_id) if ar.incident_id else None},
+                         incident_id=ar.incident_id, ambulance_id=ar.ambulance_id)
         with STATE.lock, session_scope() as db:
             if ACTIVE.get(ar.ambulance_id) is not ar:   # mission moved on meanwhile
                 continue
-            emit(db, "ROUTE_DEGRADATION_DETECTED", {
-                "ambulance_id": ar.ambulance_id, "incident_id": str(ar.incident_id) if ar.incident_id else None,
-                "route_id": str(ar.route_id), "reason": reason, "planned_eta_s": round(planned, 1),
-                "current_eta_s": None if math.isinf(current) else round(current, 1),
-                "predicted_eta_s": None if predicted is None or math.isinf(predicted) else round(predicted, 1)},
-                incident_id=ar.incident_id, ambulance_id=ar.ambulance_id)
+            if not known_unavailable:                   # same closure already reported: no repeated alert per tick
+                emit(db, "ROUTE_DEGRADATION_DETECTED", {
+                    "ambulance_id": ar.ambulance_id, "incident_id": str(ar.incident_id) if ar.incident_id else None,
+                    "route_id": str(ar.route_id), "reason": reason, "planned_eta_s": round(planned, 1),
+                    "current_eta_s": None if math.isinf(current) else round(current, 1),
+                    "predicted_eta_s": None if predicted is None or math.isinf(predicted) else round(predicted, 1)},
+                    incident_id=ar.incident_id, ambulance_id=ar.ambulance_id)
             log_event(log, "ROUTE_DEGRADATION_DETECTED", ambulance_id=ar.ambulance_id, route_id=str(ar.route_id),
                       incident_id=str(ar.incident_id), reason=reason)
             res = _reroute(db, ar, reason, decision_eta(ar) if not blocked_ahead else math.inf,
                            forced=bool(blocked_ahead) or bool(force_ambulance))
+            if res.get("decision") == "ROUTE_UNAVAILABLE" and blocked_ahead:
+                ar.unavailable_for = frozenset(blocked_ahead)
             results.append(res)
     return results
 
@@ -368,6 +391,23 @@ def _reroute(db: Session, ar: ActiveRoute, reason: str, old_eta: float, forced: 
     try:
         new = router.route(point, ar.dest, origin_node=origin_node, prefix=prefix)
     except NoRouteError as exc:
+        blocked = getattr(exc, "blocked_roads", None)
+        if blocked is not None:          # no drivable route at all: tell the dispatcher once per closure set
+            key = "unavailable:" + ",".join(blocked)
+            if key not in ar.considered_roads:
+                ar.considered_roads.add(key)
+                row = db.get(Route, ar.route_id)
+                if row is not None:          # persisted: shown as route status, survives a restart
+                    row.unavailable_reason, row.unavailable_at = str(exc)[:500], utcnow()
+                emit(db, "ROUTE_UNAVAILABLE", {**(exc.as_dict() if hasattr(exc, "as_dict") else {}), **payload,
+                                               "decision": "ROUTE_UNAVAILABLE", "detail": str(exc),
+                                               "blocked_roads": blocked, "alternative_exists": False,
+                                               "dispatcher_required": True,
+                                               "position": [round(point[0], 6), round(point[1], 6)]},
+                     incident_id=ar.incident_id, ambulance_id=ar.ambulance_id)
+                log_event(log, "ROUTE_UNAVAILABLE", ambulance_id=ar.ambulance_id, route_id=str(ar.route_id),
+                          blocked_roads=blocked, incident_id=str(ar.incident_id))
+            return {**payload, "decision": "ROUTE_UNAVAILABLE", "blocked_roads": blocked}
         emit(db, "ROUTE_CHECK", {**payload, "decision": "NO_ALTERNATIVE", "detail": str(exc)},
              incident_id=ar.incident_id, ambulance_id=ar.ambulance_id)
         return {**payload, "decision": "NO_ALTERNATIVE"}
@@ -409,6 +449,7 @@ def _apply_new_route(db: Session, ar: ActiveRoute, new: RouteResult, point: tupl
     saved = None if math.isinf(old_eta) else round(old_eta - new_eta, 1)
     data = {**payload, "decision": "REROUTED", "new_route_id": str(route.id), "new_eta_s": round(new_eta, 1),
             "time_saved_s": saved, "engine": new.engine, "distance_m": round(new.distance_m, 1),
+            "position": [round(point[0], 6), round(point[1], 6)],      # current GPS the new route starts from
             "geometry": [[round(a, 6), round(b, 6)] for a, b in new.coords]}
     emit(db, "ROUTE_RECALCULATED", data, incident_id=ar.incident_id, ambulance_id=ar.ambulance_id)
     activate(db, route, new, ar.ambulance_id, ar.incident_id, ar.leg, ar.dest, previous=ar)
@@ -432,3 +473,127 @@ def reroute_from_point(db: Session, ar: ActiveRoute, point: tuple[float, float],
     payload = {"ambulance_id": ar.ambulance_id, "incident_id": str(ar.incident_id) if ar.incident_id else None,
                "reason": reason, "old_route_id": str(ar.route_id), "leg": ar.leg, "old_eta_s": None}
     return _apply_new_route(db, ar, new, point, reason, math.inf, payload)
+
+
+# ------------------------------------------------------------------------------------------ restart recovery
+def _replan_threshold_m() -> float:
+    """ROUTE_CHECKPOINT_REPLAN_THRESHOLD_M: stored progress and the last GPS fix must agree within this distance."""
+    return get_settings().route_checkpoint_replan_threshold_m
+
+
+def recover_active_routes() -> list[dict]:
+    """Backend restart: the live routes were rebuilt from the database with their persisted checkpoint
+    (load_active_routes). For each one, compare the checkpointed route position with the ambulance's latest
+    persisted GPS fix:
+      * within ROUTE_CHECKPOINT_REPLAN_THRESHOLD_M -> ROUTE_RECOVERED: progress kept (no reset to the route start),
+        ETA recomputed from the REMAINING route
+      * farther                                    -> ROUTE_RECOVERY_REPLAN: new route from the GPS fix (ROUTE_UPDATED
+        to the simulator / device), never a jump back to the checkpoint
+    Every decision is stored as an event with checkpoint, current position, distance, old and new ETA, reason."""
+    from app.database import session_scope
+    from app.models import Ambulance
+    from app.utils.geo import haversine_m
+
+    out: list[dict] = []
+    thr = _replan_threshold_m()
+    with STATE.lock, session_scope() as db:
+        for ar in ACTIVE.all():
+            route = db.get(Route, ar.route_id)
+            amb = db.get(Ambulance, ar.ambulance_id)
+            if route is None or amb is None or not route.active or not ar.segments:
+                continue
+            progress = min(ar.progress_m, ar.total_m)
+            _, _, point = position_on_route(ar, progress)
+            gps = (amb.latitude, amb.longitude)
+            offset = haversine_m(gps[0], gps[1], point[0], point[1])
+            old_eta = route.last_eta_s
+            base = {"ambulance_id": ar.ambulance_id, "incident_id": str(ar.incident_id) if ar.incident_id else None,
+                    "route_id": str(ar.route_id), "leg": ar.leg,
+                    "checkpoint": {"progress_m": round(progress, 1), "segment": route.checkpoint_segment,
+                                   "position": [round(point[0], 6), round(point[1], 6)],
+                                   "saved_at": route.progress_updated_at.isoformat() if route.progress_updated_at else None},
+                    "current_position": [round(gps[0], 6), round(gps[1], 6)], "distance_m": round(offset, 1),
+                    "old_eta_s": None if old_eta is None else round(old_eta, 1), "threshold_m": thr}
+            if offset <= thr:
+                new_eta = remaining_eta(ar)
+                ev = {**base, "decision": "ROUTE_RECOVERED", "new_eta_s": None if math.isinf(new_eta) else round(new_eta, 1),
+                      "reason": f"GPS fix within {thr:.0f} m of the checkpoint: progress kept, ETA from the remaining route"}
+                emit(db, "ROUTE_RECOVERED", ev, incident_id=ar.incident_id, ambulance_id=ar.ambulance_id)
+            else:
+                res = reroute_from_point(db, ar, gps, f"route recovery after backend restart: GPS fix {offset:.0f} m "
+                                                      f"from the checkpoint (> {thr:.0f} m)")
+                ev = {**base, "decision": "ROUTE_RECOVERY_REPLAN" if res else "ROUTE_UNAVAILABLE",
+                      "new_eta_s": res.get("new_eta_s") if res else None,
+                      "new_route_id": res.get("new_route_id") if res else None,
+                      "reason": (f"GPS fix {offset:.0f} m from the checkpoint (> {thr:.0f} m): re-planned from the GPS fix"
+                                 if res else "no drivable route from the GPS fix - dispatcher review required")}
+                emit(db, "ROUTE_RECOVERY_REPLAN", ev, incident_id=ar.incident_id, ambulance_id=ar.ambulance_id)
+            log_event(log, ev["decision"], ambulance_id=ar.ambulance_id, route_id=str(ar.route_id),
+                      distance_m=ev["distance_m"], old_eta_s=ev["old_eta_s"], new_eta_s=ev["new_eta_s"])
+            out.append(ev)
+    return out
+
+
+def resume_simulated_routes() -> list[dict]:
+    """Answer to `simulator/hello` (a simulator process (re)started): re-send every live SIMULATED route as
+    FOLLOW_ROUTE with the last persisted position, so the simulator continues where the ambulance is.
+
+      * same route id - no new route, no duplicate active route
+      * position = latest telemetry (in memory, else ambulances.latitude/longitude persisted by the flush)
+      * progress = live progress (restored from routes.progress_m after a backend restart)
+      * if the GPS fix is more than ROUTE_CHECKPOINT_REPLAN_THRESHOLD_M from the stored progress point, they disagree:
+        the route is re-planned from the GPS fix (ROUTE_UPDATED) instead of guessing a position.
+    Device-driven units (crew phone GPS) are never touched."""
+    from types import SimpleNamespace
+
+    from app.database import session_scope
+    from app.models import Ambulance
+    from app.services.telemetry_service import TELEMETRY
+    from app.utils.geo import haversine_m
+
+    out: list[dict] = []
+    with STATE.lock, session_scope() as db:
+        for ar in ACTIVE.all():
+            amb = db.get(Ambulance, ar.ambulance_id)
+            route = db.get(Route, ar.route_id)
+            if amb is None or route is None or not route.active or amb.gps_source == "DEVICE" or not ar.segments:
+                continue
+            latest = TELEMETRY.latest.get(ar.ambulance_id)
+            if latest and latest.get("route_id") == str(ar.route_id):
+                lat, lon, ts = latest["latitude"], latest["longitude"], latest.get("timestamp")
+            else:
+                lat, lon = amb.latitude, amb.longitude
+                ts = amb.last_updated.isoformat() if amb.last_updated else None
+            progress = min(ar.progress_m, ar.total_m)
+            _, _, point = position_on_route(ar, progress)
+            offset = haversine_m(lat, lon, point[0], point[1])
+            base = {"ambulance_id": ar.ambulance_id, "route_id": str(ar.route_id), "leg": ar.leg,
+                    "progress_m": round(progress, 1), "gps": [round(lat, 6), round(lon, 6)], "offset_m": round(offset, 1)}
+            if offset <= _replan_threshold_m():
+                cmd = route_command(route, SimpleNamespace(coords=_coords(ar.segments), segments=ar.segments),
+                                    ar.incident_id, ar.leg)
+                cmd["driver"] = amb.gps_source
+                cmd["resume"] = {"latitude": lat, "longitude": lon, "progress_m": round(progress, 2),
+                                 "recorded_at": ts, "source": "BACKEND_TELEMETRY"}
+                after_commit(db, lambda a=ar.ambulance_id, c=cmd: publish(f"ambulance/{a}/command", c, retain=True))
+                emit(db, "ROUTE_RESUMED", {**base, "decision": "RESUME_FROM_PERSISTED_PROGRESS"},
+                     incident_id=ar.incident_id, ambulance_id=ar.ambulance_id)
+                out.append({**base, "decision": "RESUME"})
+            else:
+                res = reroute_from_point(db, ar, (lat, lon), "resume after simulator restart: GPS fix is "
+                                                             f"{offset:.0f} m from the stored route position")
+                decision = "REPLANNED_FROM_GPS" if res else "ROUTE_UNAVAILABLE"
+                emit(db, "ROUTE_RESUMED", {**base, "decision": decision}, incident_id=ar.incident_id,
+                     ambulance_id=ar.ambulance_id)
+                out.append({**base, "decision": decision})
+            log_event(log, "ROUTE_RESUMED", **out[-1])
+    return out
+
+
+def _coords(segments: list[Segment]) -> list[tuple[float, float]]:
+    out: list[tuple[float, float]] = []
+    for s in segments:
+        for c in s.coords:
+            if not out or out[-1] != tuple(c):
+                out.append(tuple(c))
+    return out

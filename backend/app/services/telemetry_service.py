@@ -10,6 +10,7 @@ from datetime import datetime
 from sqlalchemy import text
 
 from app.services.events import broadcast_now
+from app.utils.logging import log_event
 from app.services.routes_service import ACTIVE, remaining_eta
 from app.utils.timeutil import utcnow
 
@@ -24,6 +25,7 @@ class TelemetryBuffer:
         self.iot: list[dict] = []                # every MQTT message (iot_messages table)
         self.fuel: dict[str, float] = {}
         self.latest: dict[str, dict] = {}        # read model for API (latest position, speed, eta)
+        self._checkpointed: dict[str, float] = {}  # route id -> wall time of the last persisted checkpoint
 
     def record_iot(self, topic: str, payload: dict) -> None:
         with self._lock:
@@ -51,8 +53,15 @@ class TelemetryBuffer:
                 ar.progress_m = float(p["progress_m"])
             eta = remaining_eta(ar)
             leg = ar.leg
-        row = {"id": ambulance_id, "lat": lat, "lon": lon, "spd": speed, "ts": recorded,
-               "route_id": route_id if ar and route_id == str(ar.route_id) else None}
+        on_route = bool(ar and route_id == str(ar.route_id))
+        seg = None
+        if on_route and ar.segments:
+            from app.services.routes_service import segment_index
+            seg = segment_index(ar, ar.progress_m)
+        row = {"id": ambulance_id, "lat": lat, "lon": lon, "spd": speed, "ts": recorded, "seg": seg,
+               "route_id": route_id if on_route else None,
+               "progress": round(ar.progress_m, 2) if on_route else None,
+               "eta": None if not on_route or eta is None or eta == float("inf") else round(eta, 1)}
         with self._lock:
             self.locations[ambulance_id] = row
             self.history.append(row)
@@ -87,17 +96,43 @@ class TelemetryBuffer:
                     "current_speed=CAST(:spd AS float8), last_updated=CAST(:ts AS timestamptz) WHERE id=CAST(:id AS varchar)"), locs)
             if hist:
                 conn.execute(text(
-                    "INSERT INTO ambulance_locations(ambulance_id, latitude, longitude, location, speed_kph, route_id, recorded_at) "
+                    "INSERT INTO ambulance_locations(ambulance_id, latitude, longitude, location, speed_kph, route_id, "
+                    "progress_m, recorded_at) "
                     "SELECT a.id, CAST(:lat AS float8), CAST(:lon AS float8), "
                     "ST_SetSRID(ST_MakePoint(CAST(:lon AS float8), CAST(:lat AS float8)),4326)::geography, "
-                    "CAST(:spd AS float8), CAST(:route_id AS uuid), CAST(:ts AS timestamptz) "
+                    "CAST(:spd AS float8), CAST(:route_id AS uuid), CAST(:progress AS float8), CAST(:ts AS timestamptz) "
                     "FROM ambulances a WHERE a.id = CAST(:id AS varchar)"), hist)
+            due = self._due_checkpoints(locs)
+            if due:        # route checkpoint for restart recovery (migrations 0006 + 0007), throttled per route
+                conn.execute(text(
+                    "UPDATE routes SET progress_m=CAST(:progress AS float8), last_eta_s=CAST(:eta AS float8), "
+                    "progress_updated_at=CAST(:ts AS timestamptz), checkpoint_lat=CAST(:lat AS float8), "
+                    "checkpoint_lon=CAST(:lon AS float8), checkpoint_segment=CAST(:seg AS integer) "
+                    "WHERE id=CAST(:route_id AS uuid) AND active"), due)
+                for c in due:
+                    log_event(log, "ROUTE_CHECKPOINT_SAVED", route_id=c["route_id"], ambulance_id=c.get("id"),
+                              progress_m=round(c["progress"] or 0.0, 1), segment=c["seg"])
             if fuel:
                 conn.execute(text("UPDATE ambulances SET fuel_level=:f WHERE id=:id"),
                              [{"id": k, "f": v} for k, v in fuel.items()])
             if iot:
                 conn.execute(text("INSERT INTO iot_messages(topic, payload) VALUES (:topic, CAST(:payload AS jsonb))"), iot)
-        return {"locations": len(locs), "history": len(hist), "iot": len(iot), "fuel": len(fuel)}
+        return {"locations": len(locs), "history": len(hist), "iot": len(iot), "fuel": len(fuel),
+                "checkpoints": len(due)}
+
+    def _due_checkpoints(self, locs: list[dict]) -> list[dict]:
+        import time as _t
+
+        from app.config import get_settings
+        interval = get_settings().route_checkpoint_interval_s
+        now = _t.time()
+        due = []
+        for r in locs:
+            rid = r["route_id"]
+            if rid and now - self._checkpointed.get(rid, 0.0) >= interval:
+                self._checkpointed[rid] = now
+                due.append(r)
+        return due
 
 
 TELEMETRY = TelemetryBuffer()

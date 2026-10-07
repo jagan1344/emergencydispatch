@@ -83,6 +83,20 @@ def _update_gauges() -> None:
         metrics.AVERAGE_DISPATCH.set(r[1] or 0)
 
 
+async def _recover_routes_when_ready() -> None:
+    """Restart recovery once MQTT is connected (a re-plan must reach the simulator / device); waits at most 15 s."""
+    from app.services.routes_service import recover_active_routes
+    for _ in range(30):
+        if STATE.mqtt is None or STATE.mqtt.connected:
+            break
+        await asyncio.sleep(0.5)
+    if STATE.router is not None:
+        try:
+            await asyncio.to_thread(recover_active_routes)
+        except Exception:
+            log.exception("route recovery failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     s = get_settings()
@@ -112,6 +126,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(_loop("hospital-prediction", s.hospital_prediction_interval_s, hospital_cycle)),
             asyncio.create_task(_loop("gauges", 10.0, _update_gauges)),
         ]
+    tasks.append(asyncio.create_task(_recover_routes_when_ready()))
     log_event(log, "BACKEND_STARTED", city=s.city_name, mqtt=s.mqtt_enabled, osrm=s.osrm_url or None)
     yield
     for t in tasks:

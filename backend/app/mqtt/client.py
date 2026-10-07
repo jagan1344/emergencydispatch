@@ -12,6 +12,7 @@ Topics (JSON payloads):
   emergency/{id}/status     backend → *     incident status changes
   hospital/{id}/capacity    both            capacity updates (backend) / discharge events (sim)
   simulator/heartbeat       sim → backend   liveness of the simulator processes
+  simulator/hello           sim → backend   simulator (re)started: backend re-sends live routes with resume position
 """
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ log = logging.getLogger("app.mqtt")
 SUBSCRIPTIONS = [
     ("ambulance/+/location", 0), ("ambulance/+/status", 1), ("ambulance/+/telemetry", 0),
     ("traffic/+/status", 1), ("traffic/+/speed", 0), ("traffic/events", 0),
-    ("hospital/+/capacity", 1), ("simulator/heartbeat", 0),
+    ("hospital/+/capacity", 1), ("simulator/heartbeat", 0), ("simulator/hello", 1),
 ]
 
 

@@ -30,6 +30,26 @@ class NoRouteError(RuntimeError):
     pass
 
 
+class NoDrivableRouteError(NoRouteError):
+    """Every road route to the destination crosses a closed road. `blocked_roads` are the closures on the least-bad
+    path (what would have to reopen, or be escorted through) - for the dispatcher, never driven at a fake speed."""
+
+    def __init__(self, blocked_roads: list[str], origin: tuple[float, float] | None = None,
+                 destination: tuple[float, float] | None = None):
+        self.blocked_roads = blocked_roads
+        self.origin, self.destination = origin, destination
+        roads = ", ".join(blocked_roads[:5]) or "unknown"
+        super().__init__(f"no drivable ambulance route: every route crosses closed road(s) {roads} - "
+                         f"dispatcher review required (reopen / escort / alternative unit)")
+
+    def as_dict(self) -> dict:
+        """Structured result (never presented as a successful route)."""
+        return {"status": "ROUTE_UNAVAILABLE", "reason": str(self), "blocked_roads": self.blocked_roads,
+                "origin": list(self.origin) if self.origin else None,
+                "destination": list(self.destination) if self.destination else None,
+                "dispatcher_action_required": True}
+
+
 @dataclass
 class Segment:
     road_id: str | None
@@ -148,6 +168,7 @@ class RoutingPolicy:
     traffic_aware: bool = True
     use_prediction: bool | None = None          # None -> TRAFFIC_PREDICTION_ENABLED
     horizon_min: float | None = None            # None -> TRAFFIC_PREDICTION_HORIZON_MIN
+    closure_access: bool | None = None          # None -> CLOSURE_ACCESS_FALLBACK
 
 
 class RoutingEngine:
@@ -203,6 +224,12 @@ class RoutingEngine:
             return st.traffic_prediction_enabled, st.traffic_prediction_horizon_min
         enabled = p.traffic_aware and (st.traffic_prediction_enabled if p.use_prediction is None else p.use_prediction)
         return enabled, (st.traffic_prediction_horizon_min if p.horizon_min is None else p.horizon_min)
+
+    def _closure_access(self) -> bool:
+        if self.policy is not None and self.policy.closure_access is not None:
+            return self.policy.closure_access
+        from app.config import get_settings
+        return get_settings().closure_access_fallback
 
     def _closure_candidate(self, o_idx: int, d_idx: int) -> list[Segment] | None:
         from app.routing.graph import CLOSURE_SPEED_MPS
@@ -312,11 +339,15 @@ class RoutingEngine:
                     r.prediction_horizon_min = horizon_min
             feasible = [r for r in results if r.feasible]
             if not feasible:
-                # every open route is cut by closures: pass the closure at walking pace instead of stranding
-                # the patient, and report it so the dispatcher can arrange access
+                # every open route is cut by closures. Default: report it (ROUTE_UNAVAILABLE -> dispatcher review).
+                # Only with CLOSURE_ACCESS_FALLBACK=true is the closure passed at walking pace (escorted access).
                 closed = self._closure_candidate(o_idx, d_idx)
                 if closed is None:
                     raise NoRouteError("destination unreachable on the current road network")
+                if not self._closure_access():
+                    raise NoDrivableRouteError(sorted({s.road_id for s in closed
+                                                       if s.road_id and g.road_state(s.road_id).blocked}),
+                                               origin=origin, destination=dest)
                 segs = head + closed + tail
                 dist, base, adj = _totals(segs)
                 rr = RouteResult("graph-closure", g.source, segs, dist, base, adj, None,

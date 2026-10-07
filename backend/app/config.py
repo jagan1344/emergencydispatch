@@ -89,6 +89,17 @@ class Settings(BaseSettings):
     reroute_cooldown_s: float = Field(90.0, validation_alias=AliasChoices("REROUTE_COOLDOWN_SECONDS", "reroute_cooldown_s"))
     reroute_oscillation_similarity: float = 0.8      # reject routes this similar to a recently abandoned one
     route_monitor_interval_s: float = 5.0            # wall seconds
+    # when every route crosses a closed road: false (default) = ROUTE_UNAVAILABLE for the dispatcher;
+    # true = legacy last-resort access through the closure at walking pace (e.g. police-escorted)
+    closure_access_fallback: bool = False
+    # route checkpoint / restart recovery: checkpoint at most every N wall seconds per route; a GPS fix farther than
+    # the threshold from the checkpointed route position triggers a re-plan from the GPS fix instead of a resume
+    route_checkpoint_interval_s: float = 2.0
+    route_checkpoint_replan_threshold_m: float = 75.0
+    # severity probability calibration (used only if training showed it improves held-out Brier and ECE)
+    calibration_enabled: bool = True
+    # default seed of research experiments (CLI --seed / API) - reproducibility
+    evaluation_seed: int = 42
 
     log_level: str = "INFO"
     background_tasks: bool = True

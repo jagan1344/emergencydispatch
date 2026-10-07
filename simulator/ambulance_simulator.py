@@ -7,7 +7,14 @@ retained traffic/{road_id}/status topics) and publishes:
   ambulance/{id}/status     on events    ROUTE_STARTED / ARRIVED
   ambulance/{id}/telemetry  every 5 s    {fuel_level, odometer_km, engine_temp_c}
   simulator/heartbeat       every 2 s
+  simulator/hello           on every (re)connect
 Simulated time runs time_scale × faster than wall-clock (time_scale comes from the backend command).
+
+Restart recovery: a route command the broker replays as RETAINED (this process just started and has no state
+for the unit) is held, not driven. The backend answers simulator/hello with the same route plus a `resume`
+block (last persisted GPS fix + progress along the route); the unit then continues from that point - no
+teleport to the route start, no new route. If no answer arrives within RESUME_WAIT_S (e.g. an older backend),
+the held command is started as before and RESUME_UNAVAILABLE is logged.
 """
 from __future__ import annotations
 
@@ -22,6 +29,8 @@ from common import CONGESTION_FACTORS, bearing_deg, haversine_m, jmsg, load_env,
 
 log = setup_logging("ambulance-sim")
 FUEL_PCT_PER_KM = 0.6      # simulated consumption
+RESUME_WAIT_S = float(os.environ.get("SIM_RESUME_WAIT_S", 8.0))
+RESUME_MAX_OFFSET_M = 75.0  # resume point and last GPS fix must agree
 SEGMENT_ENTRY_EPS = 1e-6
 
 
@@ -58,6 +67,7 @@ class Unit:
     fuel: float = 85.0
     odometer_m: float = 0.0
     last_telemetry: float = field(default_factory=time.time)
+    pending: tuple[dict, float] | None = None     # retained command held until the backend sends the resume point
 
 
 class AmbulanceSimulator:
@@ -76,6 +86,8 @@ class AmbulanceSimulator:
     def _on_connect(self, client, userdata, flags, rc, props=None):
         log.info(jmsg(event="MQTT_CONNECTED", host=self.host))
         client.subscribe([("ambulance/+/command", 1), ("traffic/+/status", 1)])
+        client.publish("simulator/hello", json.dumps({"component": "ambulance", "known_units": len(self.units),
+                                                      "ts": datetime.now(timezone.utc).isoformat()}), qos=1)
 
     def _on_message(self, client, userdata, msg):
         try:
@@ -87,40 +99,93 @@ class AmbulanceSimulator:
             with self.lock:
                 self.roads[parts[1]] = payload
         elif parts[0] == "ambulance" and parts[2] == "command":
-            self._command(parts[1], payload)
+            self._command(parts[1], payload, retained=bool(msg.retain))
 
-    def _command(self, amb_id: str, p: dict) -> None:
+    def _command(self, amb_id: str, p: dict, retained: bool = False) -> None:
         with self.lock:
-            u = self.units.setdefault(amb_id, Unit(amb_id))
-            cmd = p.get("command")
-            if cmd in ("FOLLOW_ROUTE", "ROUTE_UPDATED") and p.get("driver") == "DEVICE":
-                u.mission = None          # a real GPS device drives this unit
-                return
-            if cmd in ("FOLLOW_ROUTE", "ROUTE_UPDATED"):
-                segs = [Seg(s.get("road_id"), float(s["length_m"]), float(s["speed_kph"]), float(s.get("base_speed_kph", s["speed_kph"])),
-                            [tuple(c) for c in s["coords"]]) for s in p["segments"] if s.get("coords")]
-                if not segs:  # zero-length route (already at the destination)
-                    dest = tuple(p.get("dest") or p.get("origin") or (u.lat, u.lon))
-                    segs = [Seg(None, 0.0, 1.0, 1.0, [dest, dest])]
-                if u.mission and u.mission.route_id == p["route_id"]:
-                    return  # duplicate (retained) delivery
-                m = Mission(p["route_id"], p.get("leg", ""), float(p.get("time_scale", 1.0)), segs)
-                if cmd == "ROUTE_UPDATED" and u.lat is not None and u.mission is not None and not u.mission.arrived:
-                    # re-route of the current leg: continue from the CURRENT position (no teleport, no restart)
-                    k, pos, off = self.snap(segs, u.lat, u.lon)
-                    m.seg_idx, m.pos_in_seg, m.started = k, pos, True
-                    m.progress_m = sum(sg.length_m for sg in segs[:k]) + pos
-                    log.info(jmsg(event="ROUTE_UPDATED", ambulance_id=amb_id, route_id=p["route_id"],
-                                  replaces=p.get("replaces_route_id"), snapped_offset_m=round(off, 1),
-                                  start_segment=k, length_m=round(sum(sg.length_m for sg in segs))))
-                else:
-                    u.lat, u.lon = segs[0].coords[0]
-                    log.info(jmsg(event="ROUTE_RECEIVED", ambulance_id=amb_id, route_id=p["route_id"], leg=p.get("leg"),
-                                  segments=len(segs), length_m=round(sum(s.length_m for s in segs))))
-                u.mission = m
-            elif cmd == "IDLE":
-                u.mission = None
-                u.speed_kph = 0.0
+            self._apply_command(amb_id, p, retained)
+
+    def _apply_command(self, amb_id: str, p: dict, retained: bool = False) -> None:
+        """Caller holds self.lock."""
+        u = self.units.setdefault(amb_id, Unit(amb_id))
+        cmd = p.get("command")
+        if retained and cmd in ("FOLLOW_ROUTE", "ROUTE_UPDATED") and u.mission is None:
+            # replayed by the broker after a restart (any resume block in it is stale): wait for the backend's
+            # live answer to simulator/hello with the current resume point
+            u.pending = ({k: v for k, v in p.items() if k != "resume"}, time.time())
+            log.info(jmsg(event="ROUTE_HELD_FOR_RESUME", ambulance_id=amb_id, route_id=p.get("route_id")))
+            return
+        u.pending = None
+        if cmd in ("FOLLOW_ROUTE", "ROUTE_UPDATED") and p.get("driver") == "DEVICE":
+            u.mission = None          # a real GPS device drives this unit
+            return
+        if cmd in ("FOLLOW_ROUTE", "ROUTE_UPDATED"):
+            segs = [Seg(s.get("road_id"), float(s["length_m"]), float(s["speed_kph"]), float(s.get("base_speed_kph", s["speed_kph"])),
+                        [tuple(c) for c in s["coords"]]) for s in p["segments"] if s.get("coords")]
+            if not segs:  # zero-length route (already at the destination)
+                dest = tuple(p.get("dest") or p.get("origin") or (u.lat, u.lon))
+                segs = [Seg(None, 0.0, 1.0, 1.0, [dest, dest])]
+            if u.mission and u.mission.route_id == p["route_id"]:
+                return  # duplicate (retained) delivery
+            m = Mission(p["route_id"], p.get("leg", ""), float(p.get("time_scale", 1.0)), segs)
+            if p.get("resume") and u.mission is None:
+                if not self._resume(u, m, p["resume"]):
+                    u.pending = ({k: v for k, v in p.items() if k != "resume"}, time.time())
+                    return                  # never teleport: hold until a consistent route/position arrives
+            elif cmd == "ROUTE_UPDATED" and u.lat is not None and u.mission is not None and not u.mission.arrived:
+                # re-route of the current leg: continue from the CURRENT position (no teleport, no restart)
+                k, pos, off = self.snap(segs, u.lat, u.lon)
+                m.seg_idx, m.pos_in_seg, m.started = k, pos, True
+                m.progress_m = sum(sg.length_m for sg in segs[:k]) + pos
+                log.info(jmsg(event="ROUTE_UPDATED", ambulance_id=amb_id, route_id=p["route_id"],
+                              replaces=p.get("replaces_route_id"), snapped_offset_m=round(off, 1),
+                              start_segment=k, length_m=round(sum(sg.length_m for sg in segs))))
+            else:
+                u.lat, u.lon = segs[0].coords[0]
+                log.info(jmsg(event="ROUTE_RECEIVED", ambulance_id=amb_id, route_id=p["route_id"], leg=p.get("leg"),
+                              segments=len(segs), length_m=round(sum(s.length_m for s in segs))))
+            u.mission = m
+        elif cmd == "IDLE":
+            u.mission = None
+            u.speed_kph = 0.0
+
+    def _resume(self, u: Unit, m: Mission, r: dict) -> bool:
+        """Place the unit at the persisted progress point if it agrees with the last GPS fix (no teleport)."""
+        try:
+            lat, lon, progress = float(r["latitude"]), float(r["longitude"]), max(0.0, float(r.get("progress_m") or 0.0))
+        except (KeyError, TypeError, ValueError):
+            return False
+        acc, k = 0.0, 0
+        while k < len(m.segs) - 1 and acc + m.segs[k].length_m < progress:
+            acc += m.segs[k].length_m
+            k += 1
+        pos = min(m.segs[k].length_m, progress - acc)
+        plat, plon, heading = self.point_on(m.segs[k], pos)
+        off = haversine_m(lat, lon, plat, plon)
+        if off > RESUME_MAX_OFFSET_M:          # progress and GPS disagree: snap the GPS fix onto the route instead
+            k, pos, off = self.snap(m.segs, lat, lon, search=len(m.segs))
+            if off > RESUME_MAX_OFFSET_M:
+                log.warning(jmsg(event="RESUME_REJECTED", ambulance_id=u.ambulance_id, route_id=m.route_id,
+                                 offset_m=round(off, 1)))
+                return False
+            plat, plon, heading = self.point_on(m.segs[k], pos)
+            progress = sum(sg.length_m for sg in m.segs[:k]) + pos
+        m.seg_idx, m.pos_in_seg, m.progress_m, m.started = k, pos, progress, True
+        u.lat, u.lon, u.heading = plat, plon, heading
+        log.info(jmsg(event="ROUTE_RESUMED", ambulance_id=u.ambulance_id, route_id=m.route_id, leg=m.leg,
+                      progress_m=round(progress, 1), offset_from_gps_m=round(off, 1), segment=k))
+        return True
+
+    def release_stale_pending(self) -> None:
+        """No resume answer (older backend / no telemetry): start the held command as before, and say so."""
+        now = time.time()
+        for u in self.units.values():
+            if u.pending and u.mission is None and now - u.pending[1] >= RESUME_WAIT_S:
+                p, _ = u.pending
+                u.pending = None
+                log.warning(jmsg(event="RESUME_UNAVAILABLE", ambulance_id=u.ambulance_id, route_id=p.get("route_id"),
+                                 detail="no resume point from the backend - route started from its origin"))
+                self._apply_command(u.ambulance_id, p)
 
     def publish(self, topic: str, payload: dict, qos: int = 0) -> None:
         self.client.publish(topic, json.dumps(payload), qos=qos)
@@ -249,7 +314,8 @@ class AmbulanceSimulator:
                 dt = now - last
                 last = now
                 with self.lock:
-                    msgs = [m for u in self.units.values() for m in self.step_unit(u, dt)]
+                    self.release_stale_pending()
+                    msgs = [m for u in list(self.units.values()) for m in self.step_unit(u, dt)]
                 for topic, payload, qos in msgs:
                     self.publish(topic, payload, qos)
                 if now - last_hb >= 2:
