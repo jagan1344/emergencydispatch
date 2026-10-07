@@ -1,0 +1,28 @@
+{
+  "evaluated_at": "2026-10-06T17:23:09.606773+00:00",
+  "source": "SIMULATION",
+  "history_events": 14991,
+  "horizon_min": 10.0,
+  "samples": 30000,
+  "holdout_samples": 7500,
+  "deployed_method": "LEARNED",
+  "model_version": "traffic-rf-20261006172304",
+  "reason": "RandomForest beats the persistence baseline on the time-ordered hold-out",
+  "comparison": {
+    "ml": {
+      "accuracy": 0.9532,
+      "mae_levels": 0.0841
+    },
+    "fallback": {
+      "accuracy": 0.4793,
+      "mae_levels": 0.5883
+    },
+    "persistence": {
+      "accuracy": 0.9504,
+      "mae_levels": 0.106
+    },
+    "best_by_accuracy": "ml"
+  },
+  "status": "EVALUATED",
+  "note": "time-ordered hold-out (last 25 % of samples); levels FREE..BLOCKED as 0..5"
+}

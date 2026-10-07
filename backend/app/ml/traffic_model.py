@@ -202,8 +202,15 @@ def train(hist: dict[str, RoadHistory], roads: dict[str, tuple[str, float]], hor
     acc_persist = float(np.mean(X[cut:, 0] == y[cut:]))
     mae_model = float(np.mean(np.abs(pred - y[cut:])))
     mae_persist = float(np.mean(np.abs(X[cut:, 0] - y[cut:])))
+    # transparent fallback rules scored on the SAME hold-out rows (feature columns: cur, blocked, accident, age_min,
+    # ..., hist_mean - see _feat)
+    hold = X[cut:]
+    fb = np.array([fallback_predict(int(r[0]), bool(r[1]), bool(r[2]), float(r[3]), float(r[9]), horizon_min, stats)[0]
+                   for r in hold])
+    acc_fb, mae_fb = float(np.mean(fb == y[cut:])), float(np.mean(np.abs(fb - y[cut:])))
     metrics.update({"holdout": int(n - cut), "accuracy_model": round(acc_model, 4), "accuracy_persistence": round(acc_persist, 4),
-                    "mae_model": round(mae_model, 4), "mae_persistence": round(mae_persist, 4)})
+                    "mae_model": round(mae_model, 4), "mae_persistence": round(mae_persist, 4),
+                    "accuracy_fallback": round(acc_fb, 4), "mae_fallback": round(mae_fb, 4)})
     if acc_model + 1e-9 < acc_persist + 0.01 and mae_model >= mae_persist:
         metrics["reason"] = "RandomForest did not beat the persistence baseline on the hold-out - fallback model used"
         fallback.metrics = metrics

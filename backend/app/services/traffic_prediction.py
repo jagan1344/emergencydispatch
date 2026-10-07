@@ -30,6 +30,7 @@ class TrafficPredictor:
         self.trained_at: float | None = None
         self.last_cycle: dict = {}
         self._lock = threading.Lock()
+        self._train_lock = threading.Lock()     # one training at a time (concurrent traffic events must not each retrain)
         self._hist_events = 0
 
     # ------------------------------------------------------------------ training
@@ -54,12 +55,22 @@ class TrafficPredictor:
         log_event(log, "TRAFFIC_MODEL_TRAINED", model_version=model.version, method=model.method, **model.metrics)
         return model
 
+    def _stale(self, st) -> bool:
+        return (self.model is None or self.trained_at is None or time.time() - self.trained_at > st.traffic_model_retrain_s
+                or self.model.horizon_min != st.traffic_prediction_horizon_min)
+
     def ensure_model(self, force: bool = False) -> TrafficModel:
         st = get_settings()
-        if force or self.model is None or self.trained_at is None or time.time() - self.trained_at > st.traffic_model_retrain_s \
-                or self.model.horizon_min != st.traffic_prediction_horizon_min:
+        if not force and not self._stale(st):
+            return self.model
+        started = time.time()
+        with self._train_lock:
+            # double-checked: another thread may have trained while this one waited for the lock
+            if force and self.trained_at is not None and self.trained_at >= started:
+                return self.model
+            if not force and not self._stale(st):
+                return self.model
             return self.retrain()
-        return self.model
 
     # ------------------------------------------------------------------ prediction
     def predict(self, road_ids: set[str] | None = None) -> list[dict]:
@@ -150,7 +161,20 @@ class TrafficPredictor:
 
     def status(self) -> dict:
         m = self.model
+        metrics = (m.metrics if m else None) or {}
         return {"enabled": get_settings().traffic_prediction_enabled, "horizon_min": get_settings().traffic_prediction_horizon_min,
+                # the traffic states themselves come from the traffic simulator / dispatcher events - no external feed
+                "traffic_source": "SIMULATION",
+                "label": None if m is None else ("LEARNED" if m.method == "MODEL" else "FALLBACK"),
+                "reason": metrics.get("reason"), "training_samples": metrics.get("samples"),
+                "baseline_comparison": None if "accuracy_model" not in metrics else {
+                    "accuracy_model": metrics["accuracy_model"], "accuracy_persistence": metrics["accuracy_persistence"],
+                    "mae_model": metrics["mae_model"], "mae_persistence": metrics["mae_persistence"],
+                    "holdout_samples": metrics.get("holdout")},
+                "confidence_meaning": None if m is None else (
+                    "RandomForest class probability (uncalibrated) - not a validated uncertainty estimate"
+                    if m.method == "MODEL" else
+                    "empirical share of observed traffic states that persisted for the horizon (fallback rules)"),
                 "model_version": m.version if m else None, "method": m.method if m else None,
                 "metrics": m.metrics if m else None, "trained_at": self.trained_at, "last_cycle": self.last_cycle,
                 "history_events": self._hist_events}
