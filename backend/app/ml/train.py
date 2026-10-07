@@ -3,7 +3,8 @@
     python -m app.ml.train            (from the backend/ directory)
 
 Pipeline: synthetic dataset -> preprocessing -> stratified 80/20 split -> {LogisticRegression,
-RandomForest, GradientBoosting} -> evaluation -> RandomForest saved with joblib -> loaded by the API.
+RandomForest, GradientBoosting} -> evaluation -> probability calibration check (app/ml/calibration.py) ->
+RandomForest (calibrated only if that measurably improves held-out probabilities) saved with joblib -> API.
 """
 from __future__ import annotations
 
@@ -74,7 +75,7 @@ DATASET_INFO = {
 
 
 def main(n: int = 6000, seed: int = 42, quiet: bool = False, dataset: str = "synthetic", data_path: str | None = None,
-         model_path: Path = MODEL_PATH, metrics_path: Path = METRICS_PATH) -> dict:
+         model_path: Path = MODEL_PATH, metrics_path: Path = METRICS_PATH, summary_path: Path | None = None) -> dict:
     if dataset == "synthetic":
         df = generate(n=n, seed=seed)
         DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -104,12 +105,24 @@ def main(n: int = 6000, seed: int = 42, quiet: bool = False, dataset: str = "syn
                   f"R={res['recall_macro']:.4f} F1={res['f1_macro']:.4f} ({res['train_seconds']}s)")
     deployed = "random_forest"
     rf: Pipeline = pipes[deployed]
+    # probability calibration (model confidence quality, NOT clinical certainty) - see app/ml/calibration.py
+    from app.ml.calibration import calibrate, probability_metrics
+    x_fit, x_cal, y_fit, y_cal = train_test_split(x_train, y_train, test_size=0.25, stratify=y_train, random_state=seed)
+    base = build(deployed, seed, numeric, categorical).fit(x_fit, y_fit)
+    calibrated, cal_report = calibrate(base, x_cal, y_cal, x_test, y_test)
+    cal_report["deployed_raw_model_full_train"] = probability_metrics(y_test, rf.predict_proba(x_test), list(rf.classes_))
+    if not quiet:
+        print(f"calibration: {cal_report['status']} ({cal_report.get('method')}) - {cal_report['reason']}")
     names = rf.named_steps["pre"].get_feature_names_out()
     importances = sorted(zip([n.split("__", 1)[1] for n in names], rf.named_steps["clf"].feature_importances_),
                          key=lambda t: -t[1])
     version = datetime.now(timezone.utc).strftime("rf-%Y%m%d%H%M%S")
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"pipeline": rf, "classes": CLASSES, "features": list(feats), "version": version,
+    joblib.dump({"pipeline": calibrated if calibrated is not None else rf,
+                 "raw_pipeline": base if calibrated is not None else None,
+                 "calibration": {**{k: cal_report.get(k) for k in ("status", "method", "reason")},
+                                 "version": f"{version}-{cal_report.get('method')}" if calibrated is not None else None},
+                 "classes": CLASSES, "features": list(feats), "version": version,
                  "model_name": "RandomForestClassifier", "dataset": dataset}, model_path)
     report = {
         "disclaimer": ("Synthetic, medically-inspired data for academic demonstration only. Not clinically validated."
@@ -119,16 +132,56 @@ def main(n: int = 6000, seed: int = 42, quiet: bool = False, dataset: str = "syn
         "dataset": {"name": dataset, "description": DATASET_INFO[dataset], "rows": len(df), "seed": seed,
                     "class_counts": df["severity"].value_counts().to_dict(),
                     "train_rows": len(x_train), "test_rows": len(x_test), "split": "80/20 stratified"},
-        "deployed_model": deployed, "version": version, "models": results,
+        "deployed_model": deployed, "version": version, "models": results, "calibration": cal_report,
         "feature_importances": [{"feature": f, "importance": round(float(v), 4)} for f, v in importances[:15]],
     }
     Path(metrics_path).write_text(json.dumps(report, indent=2))
+    if summary_path is None:      # a non-default training run (tests, experiments) must not overwrite the deployed summary
+        summary_path = CALIBRATION_SUMMARY if Path(metrics_path) == METRICS_PATH else \
+            Path(metrics_path).with_name("severity_calibration.json")
+    write_calibration_summary(cal_report, version, dataset, len(y_test), quiet, summary_path)
     if not quiet:
         cm = np.array(results[deployed]["confusion_matrix"]["matrix"])
         print("RandomForest confusion matrix (rows=true, cols=pred)", CLASSES)
         print(cm)
         print(f"saved {model_path} ({version})")
     return report
+
+
+CALIBRATION_SUMMARY = ML_DIR.parents[2] / "evaluation" / "severity_calibration.json"
+
+
+def write_calibration_summary(rep: dict, version: str, dataset: str, n_test: int, quiet: bool,
+                              path: Path | None = None) -> dict:
+    """Machine-readable raw-vs-calibrated comparison on the untouched test split (values computed here, not typed)."""
+    from app.ml.calibration import N_BINS
+    from app.utils.logging import log_event
+    raw, cal = rep["raw"], rep.get("calibrated")
+    pick = cal if rep["status"] == "APPLIED" else raw
+    out = {"model_version": version, "dataset": dataset, "status": rep["status"], "calibration_method": rep.get("method"),
+           "calibration_version": f"{version}-{rep.get('method')}" if rep["status"] == "APPLIED" else None,
+           "reason": rep["reason"],
+           "split": "train 60 % / calibration 20 % / untouched test 20 % (stratified); calibration fitted on the "
+                    "calibration part only; all metrics on the untouched test part",
+           "sample_count": n_test, "calibration_sample_count": rep["calibration_rows"],
+           "ece_bins": f"{N_BINS} equal-width bins of the top-label confidence (0-0.1, ..., 0.9-1.0)",
+           "deployed_probabilities": "calibrated" if rep["status"] == "APPLIED" else "raw",
+           "accuracy": pick["accuracy"], "precision": pick["precision_macro"], "recall": pick["recall_macro"],
+           "f1": pick["f1_macro"],
+           "brier_score_raw": raw["brier_multiclass"], "brier_score_calibrated": cal["brier_multiclass"] if cal else None,
+           "ece_raw": raw["ece_top_label"], "ece_calibrated": cal["ece_top_label"] if cal else None,
+           "raw": raw, "calibrated": cal,
+           "note": ("synthetic data: metrics describe the generator, not clinical performance" if dataset == "synthetic"
+                    else "public ED triage data: reproduces the dataset's triage labels; not clinically validated")}
+    path = Path(path or CALIBRATION_SUMMARY)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(out, indent=2))
+    log_event(__import__("logging").getLogger("app.ml"), "CALIBRATION_EVALUATED", status=out["status"],
+              method=out["calibration_method"], brier_raw=out["brier_score_raw"], brier_cal=out["brier_score_calibrated"],
+              ece_raw=out["ece_raw"], ece_cal=out["ece_calibrated"], samples=n_test)
+    if not quiet:
+        print(f"wrote {path}")
+    return out
 
 
 if __name__ == "__main__":

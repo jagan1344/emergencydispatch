@@ -29,6 +29,20 @@ class Prediction:
     model_name: str
     model_version: str
     latency_ms: float
+    # probability calibration (see app/ml/calibration.py): confidence/probabilities above are the DEPLOYED ones
+    # (calibrated when calibration was applied); the raw RandomForest values are kept for the decision trace
+    raw_probabilities: dict | None = None
+    raw_confidence: float | None = None
+    calibration: str | None = None          # "isotonic" / "sigmoid" when applied, else None
+    calibration_version: str | None = None
+
+    @property
+    def calibrated_probabilities(self) -> dict | None:
+        return self.probabilities if self.calibration else None
+
+    @property
+    def calibrated_confidence(self) -> float | None:
+        return self.confidence if self.calibration else None
 
 
 class SeverityModel:
@@ -41,9 +55,9 @@ class SeverityModel:
     def load(self) -> bool:
         try:
             self._bundle = joblib.load(self.path)
-            clf = self._bundle["pipeline"].named_steps.get("clf")
-            if hasattr(clf, "n_jobs"):
-                clf.n_jobs = 1   # single-row inference: thread-pool start-up would dominate latency
+            for pipe in (self._bundle["pipeline"], self._bundle.get("raw_pipeline")):
+                for est in _forests(pipe):
+                    est.n_jobs = 1   # single-row inference: thread-pool start-up would dominate latency
             self.error = None
             log.info("model loaded", extra={"event": "ML_MODEL_LOADED", "fields": {"version": self.version}})
             return True
@@ -82,10 +96,23 @@ class SeverityModel:
                 frame = frame.astype(float)
             proba = pipe.predict_proba(frame)[0]
             classes = list(pipe.classes_)
+            raw_pipe = self._bundle.get("raw_pipeline")
+            raw = dict(zip(list(raw_pipe.classes_), raw_pipe.predict_proba(frame)[0])) if raw_pipe is not None else None
+            if raw is not None and not _calibration_enabled():     # CALIBRATION_ENABLED=false -> decide on raw
+                proba, classes, raw = [raw[c] for c in raw], list(raw), None
         probs = {c: round(float(p), 4) for c, p in zip(classes, proba)}
         best = max(probs, key=probs.get)
+        cal = self._bundle.get("calibration") or {}
+        raw_probs = {c: round(float(p), 4) for c, p in raw.items()} if raw else None
+        applied = raw is not None and cal.get("status") == "APPLIED"
         return Prediction(best, probs[best], probs, feats, self._bundle["model_name"], self._bundle["version"],
-                          (time.perf_counter() - t0) * 1000)
+                          (time.perf_counter() - t0) * 1000, raw_probs or probs, raw_probs[best] if raw_probs else probs[best],
+                          cal.get("method") if applied else None, cal.get("version") if applied else None)
+
+    @property
+    def calibration(self) -> dict:
+        return dict((self._bundle or {}).get("calibration") or {"status": "NOT_EVALUATED", "method": None,
+                                                               "reason": "model trained before calibration support"})
 
     def metrics(self) -> dict | None:
         try:
@@ -93,3 +120,26 @@ class SeverityModel:
             return json.loads(METRICS_PATH.read_text())
         except FileNotFoundError:
             return None
+
+
+def _forests(est) -> list:
+    """Every fitted estimator with n_jobs inside a pipeline / calibrated wrapper."""
+    out, stack = [], [est]
+    while stack:
+        e = stack.pop()
+        if e is None:
+            continue
+        if hasattr(e, "n_jobs") and not hasattr(e, "calibrated_classifiers_"):
+            out.append(e)
+        if hasattr(e, "named_steps"):
+            stack += list(e.named_steps.values())
+        for cc in getattr(e, "calibrated_classifiers_", []):
+            stack.append(getattr(cc, "estimator", None))
+        if hasattr(e, "estimator"):
+            stack.append(e.estimator)
+    return out
+
+
+def _calibration_enabled() -> bool:
+    from app.config import get_settings
+    return get_settings().calibration_enabled

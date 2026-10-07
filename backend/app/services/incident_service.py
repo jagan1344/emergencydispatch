@@ -172,6 +172,15 @@ def classify(db: Session, inc: EmergencyIncident, case: dict) -> None:
                                       "basis": basis, "reasons": rule.reasons}, incident_id=inc.id)
     emit(db, "CONFIDENCE_ASSESSED", {"incident_id": str(inc.id), "predicted_severity": ml_level,
                                      "model_version": STATE.model.version, **ca.as_dict(),
+                                     "probability_type": ("calibrated model probability" if pred is not None and pred.calibration
+                                                          else "raw model probability") if pred is not None else None,
+                                     "raw_probability": pred.raw_confidence if pred is not None else None,
+                                     "calibration": pred.calibration if pred is not None else None,
+                                     "calibration_version": pred.calibration_version if pred is not None else None,
+                                     "raw_probabilities": pred.raw_probabilities if pred is not None else None,
+                                     "calibrated_probabilities": pred.calibrated_probabilities if pred is not None else None,
+                                     "raw_confidence": pred.raw_confidence if pred is not None else None,
+                                     "calibrated_confidence": pred.calibrated_confidence if pred is not None else None,
                                      "thresholds": {"high": st.dispatch_confidence_high, "low": st.dispatch_confidence_low}},
          incident_id=inc.id)
     log_event(log, "CONFIDENCE_ASSESSED", incident_id=str(inc.id), predicted=ml_level, confidence=ca.confidence,

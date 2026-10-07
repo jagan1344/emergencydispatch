@@ -1,0 +1,157 @@
+{
+  "model_version": "rf-20261006172011",
+  "dataset": "synthetic",
+  "status": "APPLIED",
+  "calibration_method": "isotonic",
+  "calibration_version": "rf-20261006172011-isotonic",
+  "reason": "isotonic calibration lowered Brier 0.1013 -> 0.0827 and ECE 0.0756 -> 0.0126 on the held-out test split",
+  "split": "train 60 % / calibration 20 % / untouched test 20 % (stratified); calibration fitted on the calibration part only; all metrics on the untouched test part",
+  "sample_count": 1200,
+  "calibration_sample_count": 1200,
+  "ece_bins": "10 equal-width bins of the top-label confidence (0-0.1, ..., 0.9-1.0)",
+  "deployed_probabilities": "calibrated",
+  "accuracy": 0.9542,
+  "precision": 0.9587,
+  "recall": 0.9549,
+  "f1": 0.9566,
+  "brier_score_raw": 0.1013,
+  "brier_score_calibrated": 0.0827,
+  "ece_raw": 0.0756,
+  "ece_calibrated": 0.0126,
+  "raw": {
+    "accuracy": 0.9558,
+    "precision_macro": 0.961,
+    "recall_macro": 0.9558,
+    "f1_macro": 0.9581,
+    "brier_multiclass": 0.1013,
+    "log_loss": 0.2345,
+    "ece_top_label": 0.0756,
+    "reliability_curve": [
+      {
+        "bin": [
+          0.4,
+          0.5
+        ],
+        "count": 4,
+        "mean_confidence": 0.4709,
+        "accuracy": 1.0
+      },
+      {
+        "bin": [
+          0.5,
+          0.6
+        ],
+        "count": 28,
+        "mean_confidence": 0.5647,
+        "accuracy": 0.7857
+      },
+      {
+        "bin": [
+          0.6,
+          0.7
+        ],
+        "count": 49,
+        "mean_confidence": 0.6517,
+        "accuracy": 0.898
+      },
+      {
+        "bin": [
+          0.7,
+          0.8
+        ],
+        "count": 126,
+        "mean_confidence": 0.7601,
+        "accuracy": 0.9127
+      },
+      {
+        "bin": [
+          0.8,
+          0.9
+        ],
+        "count": 371,
+        "mean_confidence": 0.8548,
+        "accuracy": 0.9569
+      },
+      {
+        "bin": [
+          0.9,
+          1.0
+        ],
+        "count": 622,
+        "mean_confidence": 0.9546,
+        "accuracy": 0.9759
+      }
+    ],
+    "confidence_distribution": {
+      "mean": 0.8802,
+      "p10": 0.7424,
+      "median": 0.9041,
+      "share_below_0_50": 0.0033,
+      "share_below_0_75": 0.1067
+    }
+  },
+  "calibrated": {
+    "accuracy": 0.9542,
+    "precision_macro": 0.9587,
+    "recall_macro": 0.9549,
+    "f1_macro": 0.9566,
+    "brier_multiclass": 0.0827,
+    "log_loss": 0.2057,
+    "ece_top_label": 0.0126,
+    "reliability_curve": [
+      {
+        "bin": [
+          0.5,
+          0.6
+        ],
+        "count": 6,
+        "mean_confidence": 0.5506,
+        "accuracy": 0.3333
+      },
+      {
+        "bin": [
+          0.6,
+          0.7
+        ],
+        "count": 5,
+        "mean_confidence": 0.6611,
+        "accuracy": 0.6
+      },
+      {
+        "bin": [
+          0.7,
+          0.8
+        ],
+        "count": 5,
+        "mean_confidence": 0.7527,
+        "accuracy": 0.8
+      },
+      {
+        "bin": [
+          0.8,
+          0.9
+        ],
+        "count": 36,
+        "mean_confidence": 0.8672,
+        "accuracy": 0.8889
+      },
+      {
+        "bin": [
+          0.9,
+          1.0
+        ],
+        "count": 1148,
+        "mean_confidence": 0.9726,
+        "accuracy": 0.9617
+      }
+    ],
+    "confidence_distribution": {
+      "mean": 0.9651,
+      "p10": 0.9457,
+      "median": 0.9694,
+      "share_below_0_50": 0.0,
+      "share_below_0_75": 0.0108
+    }
+  },
+  "note": "synthetic data: metrics describe the generator, not clinical performance"
+}
