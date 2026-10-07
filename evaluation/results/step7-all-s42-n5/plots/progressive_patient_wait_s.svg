@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 420" width="760" height="420" font-family="system-ui, -apple-system, Segoe UI, sans-serif" role="img" aria-label="Patient waiting (to pickup) by strategy">
+<rect width="760" height="420" fill="#fcfcfb"/>
+<text x="70" y="28" font-size="16" font-weight="600" fill="#0b0b0b">Patient waiting (to pickup) by strategy</text>
+<text x="70" y="48" font-size="12" fill="#52514e">Unit: s; lower is better; seed 42, 5 scenarios</text>
+<line x1="70" x2="740" y1="330.0" y2="330.0" stroke="#e6e5e0" stroke-width="1"/>
+<text x="62" y="334.0" font-size="11" text-anchor="end" fill="#8a8984">0</text>
+<line x1="70" x2="740" y1="243.3" y2="243.3" stroke="#e6e5e0" stroke-width="1"/>
+<text x="62" y="247.3" font-size="11" text-anchor="end" fill="#8a8984">500</text>
+<line x1="70" x2="740" y1="156.7" y2="156.7" stroke="#e6e5e0" stroke-width="1"/>
+<text x="62" y="160.7" font-size="11" text-anchor="end" fill="#8a8984">1000</text>
+<line x1="70" x2="740" y1="70.0" y2="70.0" stroke="#e6e5e0" stroke-width="1"/>
+<text x="62" y="74.0" font-size="11" text-anchor="end" fill="#8a8984">1500</text>
+<line x1="70" x2="740" y1="330.0" y2="330.0" stroke="#52514e" stroke-width="1"/>
+<text x="137.0" y="348" font-size="11" text-anchor="middle" fill="#52514e">BASELINE</text>
+<text x="137.0" y="363" font-size="10" text-anchor="middle" fill="#8a8984">n=5</text>
+<g><title>BASELINE: mean 654 s (10.9 min), 95% CI [420 s (7.0 min), 887 s (14.8 min)], n=5</title><rect x="109.0" y="216.7" width="56.0" height="113.3" rx="4" fill="#2a78d6"/></g>
+<line x1="137.0" x2="137.0" y1="176.2" y2="257.1" stroke="#0b0b0b" stroke-width="1.5"/>
+<line x1="131.0" x2="143.0" y1="176.2" y2="176.2" stroke="#0b0b0b" stroke-width="1.5"/>
+<line x1="131.0" x2="143.0" y1="257.1" y2="257.1" stroke="#0b0b0b" stroke-width="1.5"/>
+<text x="137.0" y="168.2" font-size="11" text-anchor="middle" fill="#0b0b0b">654</text>
+<text x="271.0" y="348" font-size="11" text-anchor="middle" fill="#52514e">SEVERITY</text>
+<text x="271.0" y="363" font-size="10" text-anchor="middle" fill="#8a8984">n=5</text>
+<g><title>SEVERITY: mean 710 s (11.8 min), 95% CI [568 s (9.5 min), 851 s (14.2 min)], n=5</title><rect x="243.0" y="207.0" width="56.0" height="123.0" rx="4" fill="#2a78d6"/></g>
+<line x1="271.0" x2="271.0" y1="182.5" y2="231.5" stroke="#0b0b0b" stroke-width="1.5"/>
+<line x1="265.0" x2="277.0" y1="182.5" y2="182.5" stroke="#0b0b0b" stroke-width="1.5"/>
+<line x1="265.0" x2="277.0" y1="231.5" y2="231.5" stroke="#0b0b0b" stroke-width="1.5"/>
+<text x="271.0" y="174.5" font-size="11" text-anchor="middle" fill="#0b0b0b">710</text>
+<text x="405.0" y="348" font-size="11" text-anchor="middle" fill="#52514e">TRAFFIC</text>
+<text x="405.0" y="363" font-size="10" text-anchor="middle" fill="#8a8984">n=5</text>
+<g><title>TRAFFIC: mean 790 s (13.2 min), 95% CI [608 s (10.1 min), 973 s (16.2 min)], n=5</title><rect x="377.0" y="193.0" width="56.0" height="137.0" rx="4" fill="#2a78d6"/></g>
+<line x1="405.0" x2="405.0" y1="161.4" y2="224.6" stroke="#0b0b0b" stroke-width="1.5"/>
+<line x1="399.0" x2="411.0" y1="161.4" y2="161.4" stroke="#0b0b0b" stroke-width="1.5"/>
+<line x1="399.0" x2="411.0" y1="224.6" y2="224.6" stroke="#0b0b0b" stroke-width="1.5"/>
+<text x="405.0" y="153.4" font-size="11" text-anchor="middle" fill="#0b0b0b">790</text>
+<text x="539.0" y="348" font-size="11" text-anchor="middle" fill="#52514e">HOSPITAL</text>
+<text x="539.0" y="363" font-size="10" text-anchor="middle" fill="#8a8984">n=5</text>
+<g><title>HOSPITAL: mean 792 s (13.2 min), 95% CI [616 s (10.3 min), 968 s (16.1 min)], n=5</title><rect x="511.0" y="192.8" width="56.0" height="137.2" rx="4" fill="#2a78d6"/></g>
+<line x1="539.0" x2="539.0" y1="162.3" y2="223.3" stroke="#0b0b0b" stroke-width="1.5"/>
+<line x1="533.0" x2="545.0" y1="162.3" y2="162.3" stroke="#0b0b0b" stroke-width="1.5"/>
+<line x1="533.0" x2="545.0" y1="223.3" y2="223.3" stroke="#0b0b0b" stroke-width="1.5"/>
+<text x="539.0" y="154.3" font-size="11" text-anchor="middle" fill="#0b0b0b">792</text>
+<text x="673.0" y="348" font-size="11" text-anchor="middle" fill="#52514e">FULL</text>
+<text x="673.0" y="363" font-size="10" text-anchor="middle" fill="#8a8984">n=5</text>
+<g><title>FULL: mean 727 s (12.1 min), 95% CI [517 s (8.6 min), 938 s (15.6 min)], n=5</title><rect x="645.0" y="204.0" width="56.0" height="126.0" rx="4" fill="#2a78d6"/></g>
+<line x1="673.0" x2="673.0" y1="167.5" y2="240.5" stroke="#0b0b0b" stroke-width="1.5"/>
+<line x1="667.0" x2="679.0" y1="167.5" y2="167.5" stroke="#0b0b0b" stroke-width="1.5"/>
+<line x1="667.0" x2="679.0" y1="240.5" y2="240.5" stroke="#0b0b0b" stroke-width="1.5"/>
+<text x="673.0" y="159.5" font-size="11" text-anchor="middle" fill="#0b0b0b">727</text>
+<text x="70" y="390" font-size="10" fill="#8a8984">Bars: mean over scenarios. Whiskers: 95% CI of the mean (t-interval).</text>
+<text x="70" y="404" font-size="10" fill="#8a8984">Simulated decision-support experiment - not clinical or real-world performance.</text>
+</svg>

@@ -1,0 +1,11 @@
+committed_units,emergency_types,events,fingerprint,fleet,hospital_load_regime,incidents,scenario,severities,traffic_regime,uncertain_reports
+1,"{""cardiac"": 2, ""stroke"": 2, ""fire"": 2, ""other"": 2}","{""ACCIDENT"": 1, ""BLOCK"": 4, ""CLEAR"": 5}",cf99f397ad5c0397,7,HIGH,8,1,"{""HIGH"": 3, ""MEDIUM"": 3, ""LOW"": 2}",SEVERE,2
+0,"{""respiratory"": 2, ""stroke"": 1, ""cardiac"": 1, ""other"": 1, ""accident"": 1}","{""CONGESTION"": 2, ""CLEAR"": 3, ""ACCIDENT"": 1}",4318cc383161f948,3,MEDIUM,6,2,"{""MEDIUM"": 2, ""HIGH"": 3, ""CRITICAL"": 1}",SEVERE,2
+1,"{""stroke"": 2, ""fire"": 1, ""cardiac"": 2}","{""ACCIDENT"": 2, ""CLEAR"": 3, ""CONGESTION"": 1}",5992f31d0e1aed88,8,MEDIUM,5,3,"{""MEDIUM"": 4, ""HIGH"": 1}",MODERATE,2
+2,"{""accident"": 3}","{""ACCIDENT"": 1, ""CONGESTION"": 1, ""CLEAR"": 3, ""BLOCK"": 1}",523ba95237f11726,5,LOW,3,4,"{""LOW"": 1, ""MEDIUM"": 2}",SEVERE,2
+0,"{""accident"": 2, ""trauma"": 2, ""respiratory"": 1}","{""CONGESTION"": 1, ""BLOCK"": 2, ""CLEAR"": 3, ""HOSPITAL_SURGE"": 1}",e2d9bac33d89efc6,4,MEDIUM,5,5,"{""MEDIUM"": 3, ""HIGH"": 1, ""LOW"": 1}",MODERATE,1
+1,"{""trauma"": 1, ""accident"": 1, ""respiratory"": 3, ""cardiac"": 1, ""stroke"": 1}","{""CONGESTION"": 1, ""ACCIDENT"": 4, ""CLEAR"": 5}",566a475fbe8b2ff5,8,LOW,7,6,"{""LOW"": 2, ""MEDIUM"": 2, ""HIGH"": 2, ""CRITICAL"": 1}",MODERATE,3
+3,"{""accident"": 2, ""other"": 1}","{""BLOCK"": 2, ""AMBULANCE_UNAVAILABLE"": 1, ""CLEAR"": 2, ""HOSPITAL_SURGE"": 1}",9902646e08a070a5,6,MEDIUM,3,7,"{""MEDIUM"": 1, ""LOW"": 2}",FREE,2
+2,"{""accident"": 2, ""trauma"": 1, ""fire"": 1, ""other"": 1, ""cardiac"": 2, ""respiratory"": 1}","{""BLOCK"": 4, ""ACCIDENT"": 1, ""CONGESTION"": 1, ""CLEAR"": 6}",1fdedd59f2479e15,5,MEDIUM,8,8,"{""MEDIUM"": 3, ""HIGH"": 3, ""LOW"": 2}",SEVERE,1
+0,"{""cardiac"": 2, ""respiratory"": 1, ""trauma"": 2, ""stroke"": 1, ""other"": 1}","{""BLOCK"": 4, ""CONGESTION"": 2, ""CLEAR"": 6}",219dfa706d75de58,9,LOW,7,9,"{""CRITICAL"": 3, ""MEDIUM"": 2, ""HIGH"": 1, ""LOW"": 1}",SEVERE,1
+1,"{""trauma"": 1, ""stroke"": 2, ""accident"": 1}","{""BLOCK"": 2, ""ACCIDENT"": 1, ""CLEAR"": 5, ""CONGESTION"": 2}",eda4d334726de76b,9,MEDIUM,4,10,"{""LOW"": 1, ""HIGH"": 2, ""MEDIUM"": 1}",SEVERE,2

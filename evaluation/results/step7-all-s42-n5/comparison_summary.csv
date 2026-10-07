@@ -1,0 +1,36 @@
+metric,label,unit,direction,BASELINE,SEVERITY,TRAFFIC,HOSPITAL,FULL
+response_time_s,Response time,s,lower_is_better,523.758,579.6583333333333,660.4645,661.5705,597.1213333333333
+patient_wait_s,Patient waiting (to pickup),s,lower_is_better,653.7723333333333,709.6726666666666,790.4788333333333,791.5848333333333,727.1356666666667
+dispatch_delay_s,Dispatch delay (queue + review),s,lower_is_better,65.5705,56.30383333333333,68.30383333333333,68.30383333333333,69.02716666666666
+initial_eta_s,Initial route ETA,s,none,341.0006666666667,376.9896666666667,506.4293333333333,507.5838333333333,464.77216666666664
+actual_travel_s,Actual travel to scene,s,lower_is_better,458.1875,523.3544999999999,592.1606666666667,593.2666666666667,523.7441666666666
+eta_abs_error_s,|ETA error| (actual - planned),s,lower_is_better,68.14533333333333,85.77433333333333,26.711166666666667,26.652166666666666,28.955833333333334
+reroutes,Proactive re-routes,count,none,0.0,0.0,0.0,0.0,0.4
+reroute_saved_s,Re-route ETA savings,s,higher_is_better,0.0,0.0,0.0,0.0,0.0
+reroute_improvement_pct,Re-route improvement,%,higher_is_better,,,,,
+reactive_detours,Reactive detours at closures,count,lower_is_better,0.6,0.8,0.8,0.6,0.0
+ambulance_utilization,Ambulance utilization,ratio,none,0.4459198412698413,0.45759047619047627,0.4628285714285715,0.4677214285714285,0.44820291005291
+no_unit_available_pct,Time with no unit available,%,lower_is_better,11.377777777777776,11.377777777777776,12.733333333333334,13.511111111111111,11.355555555555556
+reserve_availability,Reserve availability,ratio,higher_is_better,0.5540801587301587,0.5424095238095238,0.5371714285714286,0.5322785714285715,0.55179708994709
+hospital_wait_simulated_s,Hospital wait (simulated),s,lower_is_better,1552.8619999999999,1983.9470000000001,1783.247,1156.335,1355.807
+hospital_wait_predicted_s,Hospital wait (predicted),s,none,,,,1146.486,1375.5829999999999
+hospital_capability_gap_pct,Hospital capability gap,%,lower_is_better,41.83333333333333,29.5,29.5,29.5,29.5
+unsuitable_unit_pct,Unsuitable first unit (vs simulated need),%,lower_is_better,34.5,21.5,17.5,17.5,15.0
+unit_full_match_pct,Perfect unit capability match,%,higher_is_better,47.66666666666667,67.16666666666667,78.5,78.5,81.0
+time_to_treatment_s,Creation -> ED treatment (simulated),s,lower_is_better,2681.8216666666663,3167.79,3017.0091666666667,2433.0871666666667,2559.6983333333333
+critical_response_s,Critical response time,s,lower_is_better,852.6,852.6,812.9,812.9,1066.7
+critical_delay_s,Critical delay beyond target,s,lower_is_better,372.6,372.6,332.9,332.9,586.7
+critical_delayed_pct,Critical cases over target,%,lower_is_better,100.0,100.0,100.0,100.0,100.0
+critical_worst_delay_s,Worst critical delay,s,lower_is_better,372.6,372.6,332.9,332.9,586.7
+review_rate,Review-trigger rate,%,none,0.0,0.0,0.0,0.0,12.333333333333334
+automatic_decision_rate,Automatic decision rate,%,none,100.0,100.0,100.0,100.0,84.88888888888889
+potentially_inappropriate_auto,Potentially inappropriate auto-dispatch,count,lower_is_better,0.8,0.8,0.8,0.8,0.0
+under_triage_pct,Under-triage vs simulated label,%,lower_is_better,,19.833333333333332,19.833333333333332,19.833333333333332,14.0
+resource_conflicts,Resource conflicts detected,count,none,0.0,0.0,0.0,0.0,0.4
+reallocations,Automatic reallocations,count,none,0.0,0.0,0.0,0.0,0.2
+conflicts_escalated,Conflicts escalated,count,none,0.0,0.0,0.0,0.0,0.2
+donor_delay_s,Delay imposed on donor missions (est.),s,lower_is_better,,,,,36.3
+critical_delay_avoided_s,Requester delay avoided (est.),s,higher_is_better,,,,,
+manual_interventions,Manual interventions,count,lower_is_better,0.0,0.0,0.0,0.0,1.0
+unserved_calls,Calls not reached,count,lower_is_better,0.0,0.0,0.0,0.0,0.0
+decision_ms,Decision compute time,ms,none,29.318549023323612,43.822247436665975,39.332630011663625,39.9342026233281,38.37327200855487

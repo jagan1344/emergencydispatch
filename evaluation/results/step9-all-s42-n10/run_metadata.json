@@ -1,0 +1,197 @@
+{
+  "git_commit": "a2116caa46932fa024c47167e2d141d4e233568d",
+  "git_branch": "research-evaluation",
+  "git_dirty": false,
+  "city": {
+    "name": "Monaco",
+    "lat": 43.7384,
+    "lon": 7.4246,
+    "radius_m": 5000.0
+  },
+  "road_network": {
+    "source": "osm",
+    "nodes": 11250,
+    "edges": 19562,
+    "roads": 1108,
+    "service_area_nodes": 10069,
+    "hospitals": 2,
+    "sha256": "6cd79e4808ed8123"
+  },
+  "routing": {
+    "graph_source": "osm",
+    "osrm": "enabled (http://localhost:5000)"
+  },
+  "severity_model": {
+    "version": "rf-20261005182602",
+    "dataset": "synthetic",
+    "available": true
+  },
+  "traffic_model": {
+    "version": "traffic-fallback-v1-20261006160056",
+    "method": "FALLBACK",
+    "label": "FALLBACK",
+    "metrics": {
+      "samples": 30000,
+      "roads_with_history": 1056,
+      "min_samples": 300,
+      "tau_min": 8.55,
+      "incident_duration_min": 0.88,
+      "p_persist": 0.469,
+      "observed_state_durations": 8509,
+      "holdout": 7500,
+      "accuracy_model": 1.0,
+      "accuracy_persistence": 1.0,
+      "mae_model": 0.0,
+      "mae_persistence": 0.0,
+      "reason": "RandomForest did not beat the persistence baseline on the hold-out - fallback model used"
+    }
+  },
+  "hospital_model": {
+    "version": "hospital-queue-v1",
+    "label": "ESTIMATE (queueing approximation)"
+  },
+  "hospital_templates": [
+    {
+      "id": "HSP-001",
+      "name": "Centre Cardio Thoracique de Monaco",
+      "lat": 43.7376303,
+      "lon": 7.4248591,
+      "emergency_capacity": 20,
+      "icu_capacity": 0,
+      "trauma": false,
+      "cardiac": true,
+      "stroke": false
+    },
+    {
+      "id": "HSP-002",
+      "name": "Unnamed hospital (N25237989)",
+      "lat": 43.7304054,
+      "lon": 7.4114082,
+      "emergency_capacity": 20,
+      "icu_capacity": 0,
+      "trauma": false,
+      "cardiac": false,
+      "stroke": false
+    }
+  ],
+  "settings": {
+    "dispatch_confidence_high": 0.75,
+    "dispatch_confidence_low": 0.5,
+    "human_review_timeout_s": 120.0,
+    "traffic_prediction_horizon_min": 10.0,
+    "hospital_prediction_horizon_min": 10.0,
+    "hospital_rate_window_min": 240.0,
+    "ed_mean_stay_min": 240.0,
+    "ed_treatment_slot_min": 5.0,
+    "hospital_max_wait_min": 120.0,
+    "resource_reallocation_threshold_s": 480.0,
+    "reallocation_min_gain_s": 120.0,
+    "reallocation_max_donor_delay_s": 300.0,
+    "reallocation_priority_margin": 10.0,
+    "reroute_threshold": 0.2,
+    "reroute_min_eta_savings_s": 20.0,
+    "reroute_min_improvement_percent": 5.0,
+    "reroute_cooldown_s": 90.0,
+    "reroute_oscillation_similarity": 0.8,
+    "max_dispatch_candidates": 8,
+    "scene_time_s": 120.0,
+    "handover_time_s": 90.0
+  },
+  "environment": {
+    "python": "3.11.15",
+    "platform": "Linux-6.18.44-fc-v70-x86_64-with-glibc2.39"
+  },
+  "started_at": "2026-10-06T16:00:59.208423+00:00",
+  "seed": 42,
+  "scenario_count": 10,
+  "strategies": [
+    "BASELINE",
+    "SEVERITY",
+    "TRAFFIC",
+    "HOSPITAL",
+    "FULL"
+  ],
+  "kind": "PROGRESSIVE",
+  "configuration": {
+    "strategies": {
+      "BASELINE": {
+        "severity": false,
+        "traffic": false,
+        "traffic_prediction": false,
+        "hospital_intelligence": false,
+        "confidence": false,
+        "reallocation": false,
+        "dynamic_rerouting": false,
+        "explainability": false,
+        "batch_optimisation": false
+      },
+      "SEVERITY": {
+        "severity": true,
+        "traffic": false,
+        "traffic_prediction": false,
+        "hospital_intelligence": false,
+        "confidence": false,
+        "reallocation": false,
+        "dynamic_rerouting": false,
+        "explainability": false,
+        "batch_optimisation": false
+      },
+      "TRAFFIC": {
+        "severity": true,
+        "traffic": true,
+        "traffic_prediction": true,
+        "hospital_intelligence": false,
+        "confidence": false,
+        "reallocation": false,
+        "dynamic_rerouting": false,
+        "explainability": false,
+        "batch_optimisation": false
+      },
+      "HOSPITAL": {
+        "severity": true,
+        "traffic": true,
+        "traffic_prediction": true,
+        "hospital_intelligence": true,
+        "confidence": false,
+        "reallocation": false,
+        "dynamic_rerouting": false,
+        "explainability": false,
+        "batch_optimisation": false
+      },
+      "FULL": {
+        "severity": true,
+        "traffic": true,
+        "traffic_prediction": true,
+        "hospital_intelligence": true,
+        "confidence": true,
+        "reallocation": true,
+        "dynamic_rerouting": true,
+        "explainability": true,
+        "batch_optimisation": true
+      }
+    },
+    "simulation": {
+      "dt_s": 2.0,
+      "dispatch_interval_s": 12.0,
+      "monitor_interval_s": 20.0,
+      "prediction_interval_s": 120.0,
+      "max_extra_s": 14400.0,
+      "escalation_policy": "reject",
+      "critical_target_s": 480.0
+    },
+    "scenario_options": {
+      "duration_s": 1800.0,
+      "min_incidents": 3,
+      "max_incidents": 8,
+      "min_fleet": 2,
+      "max_fleet": 10,
+      "scene_time_s": 120.0,
+      "handover_time_s": 90.0,
+      "ed_mean_stay_min": 240.0,
+      "review_delay_s": [
+        30.0,
+        150.0
+      ]
+    }
+  }
+}

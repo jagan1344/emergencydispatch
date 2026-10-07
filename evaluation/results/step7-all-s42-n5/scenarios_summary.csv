@@ -1,0 +1,6 @@
+committed_units,emergency_types,events,fingerprint,fleet,hospital_load_regime,incidents,scenario,severities,traffic_regime,uncertain_reports
+1,"{""cardiac"": 2, ""stroke"": 2, ""fire"": 2, ""other"": 2}","{""ACCIDENT"": 1, ""BLOCK"": 4, ""CLEAR"": 5}",cf99f397ad5c0397,7,HIGH,8,1,"{""HIGH"": 3, ""MEDIUM"": 3, ""LOW"": 2}",SEVERE,2
+0,"{""respiratory"": 2, ""stroke"": 1, ""cardiac"": 1, ""other"": 1, ""accident"": 1}","{""CONGESTION"": 2, ""CLEAR"": 3, ""ACCIDENT"": 1}",4318cc383161f948,3,MEDIUM,6,2,"{""MEDIUM"": 2, ""HIGH"": 3, ""CRITICAL"": 1}",SEVERE,2
+1,"{""stroke"": 2, ""fire"": 1, ""cardiac"": 2}","{""ACCIDENT"": 2, ""CLEAR"": 3, ""CONGESTION"": 1}",5992f31d0e1aed88,8,MEDIUM,5,3,"{""MEDIUM"": 4, ""HIGH"": 1}",MODERATE,2
+2,"{""accident"": 3}","{""ACCIDENT"": 1, ""CONGESTION"": 1, ""CLEAR"": 3, ""BLOCK"": 1}",523ba95237f11726,5,LOW,3,4,"{""LOW"": 1, ""MEDIUM"": 2}",SEVERE,2
+0,"{""accident"": 2, ""trauma"": 2, ""respiratory"": 1}","{""CONGESTION"": 1, ""BLOCK"": 2, ""CLEAR"": 3, ""HOSPITAL_SURGE"": 1}",e2d9bac33d89efc6,4,MEDIUM,5,5,"{""MEDIUM"": 3, ""HIGH"": 1, ""LOW"": 1}",MODERATE,1

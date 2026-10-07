@@ -1,0 +1,281 @@
+family,strategy,reference,metric,pairs,reference_mean,strategy_mean,mean_difference,pct_change,improvement,ci95_low,ci95_high,ci_method,test,statistic,p_value,p_adjusted,significant,normality_p,note
+paired_vs_baseline,SEVERITY,BASELINE,response_time_s,10,509.2719166666667,563.7160119047619,54.44409523809522,10.690574810102962,-54.44409523809522,-0.5757552604165781,109.46394573660703,t,paired t-test,2.238484817734211,0.05197170908681232,0.15591512726043655,False,0.19523340253427074,
+paired_vs_baseline,SEVERITY,BASELINE,patient_wait_s,10,639.834380952381,694.2784761904762,54.444095238095244,8.509091861718382,-54.444095238095244,-0.5757552604165568,109.46394573660704,t,paired t-test,2.238484817734212,0.05197170908681218,0.15591512726043655,False,0.19523340253427285,
+paired_vs_baseline,SEVERITY,BASELINE,dispatch_delay_s,10,40.336797619047616,35.70346428571428,-4.633333333333331,-11.486616704409386,4.633333333333331,-13.899999999999995,0.0,bootstrap,none,,,,,1.0036928213864587e-07,only 1 non-zero differences: no significance test
+paired_vs_baseline,SEVERITY,BASELINE,initial_eta_s,10,322.2983690476191,359.81179761904764,37.51342857142858,11.639347937837696,,10.915357142857143,71.57945714285714,bootstrap,none,,,,,0.003955402732892173,only 6 non-zero differences: no significance test
+paired_vs_baseline,SEVERITY,BASELINE,actual_travel_s,10,468.93511904761897,528.0125476190476,59.07742857142857,12.598209469022395,-59.07742857142857,19.33028571428572,101.22305178571428,bootstrap,none,,,,,0.01621076839333902,only 6 non-zero differences: no significance test
+paired_vs_baseline,SEVERITY,BASELINE,eta_abs_error_s,10,111.9562380952381,130.02288095238094,18.066642857142856,16.13723644570306,-18.066642857142856,4.602785714285716,34.465357142857144,bootstrap,none,,,,,0.005295336378813213,only 6 non-zero differences: no significance test
+paired_vs_baseline,SEVERITY,BASELINE,reroutes,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,SEVERITY,BASELINE,reroute_saved_s,10,0.0,0.0,0.0,,0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,SEVERITY,BASELINE,reroute_improvement_pct,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,SEVERITY,BASELINE,reactive_detours,10,0.9,1.0,0.1,11.11111111111111,-0.1,0.0,0.3,bootstrap,none,,,,,1.0036928213864587e-07,only 1 non-zero differences: no significance test
+paired_vs_baseline,SEVERITY,BASELINE,ambulance_utilization,10,0.45641485890652567,0.4620773368606702,0.0056624779541446235,1.2406427712959947,,-0.00022760141093475396,0.013237654320987674,bootstrap,none,,,,,0.0016948673734545967,only 5 non-zero differences: no significance test
+paired_vs_baseline,SEVERITY,BASELINE,no_unit_available_pct,10,10.333333333333334,10.333333333333334,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,SEVERITY,BASELINE,reserve_availability,10,0.5334740299823633,0.5278115520282187,-0.0056624779541446235,-1.061434603354886,-0.0056624779541446235,-0.013237654320987658,0.00022760141093472542,bootstrap,none,,,,,0.001694867373454585,only 5 non-zero differences: no significance test
+paired_vs_baseline,SEVERITY,BASELINE,hospital_wait_simulated_s,10,1777.3395714285714,2065.670642857143,288.3310714285715,16.22262149921187,-288.3310714285715,10.65857142857142,575.8360714285716,bootstrap,none,,,,,0.00023197517580330539,only 6 non-zero differences: no significance test
+paired_vs_baseline,SEVERITY,BASELINE,hospital_wait_predicted_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,SEVERITY,BASELINE,hospital_capability_gap_pct,10,38.41666666666667,29.571428571428573,-8.845238095238093,-23.024480942051433,8.845238095238093,-14.678571428571427,-3.25,bootstrap,none,,,,,0.020542989454447522,only 5 non-zero differences: no significance test
+paired_vs_baseline,SEVERITY,BASELINE,unsuitable_unit_pct,10,30.821428571428573,12.178571428571429,-18.642857142857146,-60.48667439165702,18.642857142857146,-31.924671768749278,-5.361042516965016,t,paired t-test,-3.1752493171018967,0.011270486336305596,0.05635243168152798,False,0.1022268306479539,
+paired_vs_baseline,SEVERITY,BASELINE,unit_full_match_pct,10,43.535714285714285,61.142857142857146,17.607142857142854,40.44298605414273,17.607142857142854,4.088141234871088,31.12614447941462,t,paired t-test,2.946232676315324,0.016320548193548175,0.0652821927741927,False,0.061740530513362556,
+paired_vs_baseline,SEVERITY,BASELINE,time_to_treatment_s,10,2872.963452380952,3217.421547619048,344.4580952380952,11.989644175690001,-344.4580952380952,70.5570416666667,650.8440327380952,bootstrap,none,,,,,0.0012070868405419286,only 8 non-zero differences: no significance test
+paired_vs_baseline,SEVERITY,BASELINE,critical_response_s,3,501.28888888888883,634.6,133.31111111111113,26.593669651564863,-133.31111111111113,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,SEVERITY,BASELINE,critical_delay_s,3,144.82222222222222,206.32222222222222,61.5,42.465858523860675,-61.5,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,SEVERITY,BASELINE,critical_delayed_pct,3,44.44444444444445,77.77777777777779,33.333333333333336,75.0,-33.333333333333336,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,SEVERITY,BASELINE,critical_worst_delay_s,3,186.0666666666667,247.5666666666667,61.5,33.05266929415979,-61.5,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,SEVERITY,BASELINE,review_rate,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,SEVERITY,BASELINE,automatic_decision_rate,10,100.0,100.0,0.0,0.0,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,SEVERITY,BASELINE,potentially_inappropriate_auto,10,0.5,0.5,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,SEVERITY,BASELINE,under_triage_pct,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,SEVERITY,BASELINE,resource_conflicts,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,SEVERITY,BASELINE,reallocations,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,SEVERITY,BASELINE,conflicts_escalated,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,SEVERITY,BASELINE,donor_delay_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,SEVERITY,BASELINE,critical_delay_avoided_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,SEVERITY,BASELINE,manual_interventions,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,SEVERITY,BASELINE,unserved_calls,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,SEVERITY,BASELINE,decision_ms,10,34.93298843290528,41.70609608199968,6.773107649094397,19.388858362642797,,-3.4039703021752494,19.514624191685108,bootstrap,Wilcoxon signed-rank,22.0,0.625,0.625,False,0.025977540703891917,
+paired_vs_baseline,TRAFFIC,BASELINE,response_time_s,10,509.2719166666667,572.4800476190477,63.20813095238094,12.411469960114157,-63.20813095238094,-43.11935213948121,169.5356140442431,t,paired t-test,1.3447767409060305,0.21160373862232712,1.0,False,0.7366990411568234,
+paired_vs_baseline,TRAFFIC,BASELINE,patient_wait_s,10,639.834380952381,703.0425119047619,63.20813095238094,9.878826901783063,-63.20813095238094,-43.11935213948121,169.5356140442431,t,paired t-test,1.3447767409060307,0.21160373862232681,1.0,False,0.7366990411568266,
+paired_vs_baseline,TRAFFIC,BASELINE,dispatch_delay_s,10,40.336797619047616,41.70346428571428,1.3666666666666685,3.3881387401495378,-1.3666666666666685,0.0,4.100000000000006,bootstrap,none,,,,,1.0036928213864587e-07,only 1 non-zero differences: no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,initial_eta_s,10,322.2983690476191,452.0895476190476,129.79117857142856,40.27050430163738,,54.363527977063754,205.21882916579335,t,paired t-test,3.892578410699079,0.0036605485294648526,0.03660548529464853,True,0.10084797643499638,
+paired_vs_baseline,TRAFFIC,BASELINE,actual_travel_s,10,468.93511904761897,530.7765833333334,61.8414642857143,13.187637644054227,-61.8414642857143,-44.495578672169096,168.1785072435977,t,paired t-test,1.3155821104341394,0.22083959717396334,1.0,False,0.6478262357995939,
+paired_vs_baseline,TRAFFIC,BASELINE,eta_abs_error_s,10,111.9562380952381,32.97004761904762,-78.98619047619047,-70.55095081794289,78.98619047619047,-132.0386625533029,-25.933718399078025,t,paired t-test,-3.3679707948037776,0.008283627584469504,0.06626902067575603,False,0.16698174463709559,
+paired_vs_baseline,TRAFFIC,BASELINE,reroutes,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,TRAFFIC,BASELINE,reroute_saved_s,10,0.0,0.0,0.0,,0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,TRAFFIC,BASELINE,reroute_improvement_pct,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,reactive_detours,10,0.9,0.9,0.0,0.0,-0.0,-0.3,0.3,bootstrap,none,,,,,0.0002761813585089672,only 2 non-zero differences: no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,ambulance_utilization,10,0.45641485890652567,0.45947601410934746,0.003061155202821872,0.6706957810610632,,-0.013866021225374841,0.019988331631018586,t,paired t-test,0.4090944640339052,0.6920343147230978,1.0,False,0.09546404083462791,
+paired_vs_baseline,TRAFFIC,BASELINE,no_unit_available_pct,10,10.333333333333334,10.788888888888888,0.4555555555555556,4.408602150537634,-0.4555555555555556,-0.6666666666666667,2.0333333333333337,bootstrap,none,,,,,1.2757870890149796e-05,only 2 non-zero differences: no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,reserve_availability,10,0.5334740299823633,0.5304128747795415,-0.0030611552028218638,-0.5738152245055052,-0.0030611552028218638,-0.019988331631018565,0.01386602122537484,t,paired t-test,-0.4090944640339044,0.6920343147230984,1.0,False,0.09546404083462856,
+paired_vs_baseline,TRAFFIC,BASELINE,hospital_wait_simulated_s,10,1777.3395714285714,1745.7485000000001,-31.59107142857136,-1.7774358899340446,31.59107142857136,-575.3785714285714,395.08741071428545,bootstrap,none,,,,,0.0013527296826594654,only 7 non-zero differences: no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,hospital_wait_predicted_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,hospital_capability_gap_pct,10,38.41666666666667,29.571428571428573,-8.845238095238093,-23.024480942051433,8.845238095238093,-14.678571428571427,-3.25,bootstrap,none,,,,,0.020542989454447522,only 5 non-zero differences: no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,unsuitable_unit_pct,10,30.821428571428573,10.178571428571429,-20.642857142857146,-66.97566628041716,20.642857142857146,-34.78367318940835,-6.502041096305948,t,paired t-test,-3.3023120442701326,0.009195937744567987,0.06626902067575603,False,0.08113774020005368,
+paired_vs_baseline,TRAFFIC,BASELINE,unit_full_match_pct,10,43.535714285714285,68.23809523809524,24.702380952380953,56.74049767569046,24.702380952380953,9.061728075666688,40.34303382909522,t,paired t-test,3.5727835947816096,0.005998064381573699,0.05398257943416329,False,0.3238968578388709,
+paired_vs_baseline,TRAFFIC,BASELINE,time_to_treatment_s,10,2872.963452380952,2884.502738095238,11.539285714285745,0.40165097487483276,-11.539285714285745,-596.7498407738093,490.38729315476155,bootstrap,Wilcoxon signed-rank,18.0,0.375,1.0,False,0.010810059372983025,
+paired_vs_baseline,TRAFFIC,BASELINE,critical_response_s,3,501.28888888888883,620.1666666666666,118.87777777777778,23.71442503768065,-118.87777777777778,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,critical_delay_s,3,144.82222222222222,191.88888888888889,47.066666666666656,32.49961638790854,-47.066666666666656,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,critical_delayed_pct,3,44.44444444444445,77.77777777777779,33.333333333333336,75.0,-33.333333333333336,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,critical_worst_delay_s,3,186.0666666666667,233.13333333333333,47.066666666666656,25.295592977427432,-47.066666666666656,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,review_rate,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,TRAFFIC,BASELINE,automatic_decision_rate,10,100.0,100.0,0.0,0.0,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,TRAFFIC,BASELINE,potentially_inappropriate_auto,10,0.5,0.5,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,TRAFFIC,BASELINE,under_triage_pct,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,resource_conflicts,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,TRAFFIC,BASELINE,reallocations,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,TRAFFIC,BASELINE,conflicts_escalated,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,TRAFFIC,BASELINE,donor_delay_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,critical_delay_avoided_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,TRAFFIC,BASELINE,manual_interventions,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,TRAFFIC,BASELINE,unserved_calls,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,TRAFFIC,BASELINE,decision_ms,10,34.93298843290528,46.086565900497945,11.153577467592651,31.92849500699027,,5.632368503541176,16.674786431644126,t,paired t-test,4.569858761626133,0.0013471673442511367,0.014818840786762504,True,0.2560602527327482,
+paired_vs_baseline,HOSPITAL,BASELINE,response_time_s,10,509.2719166666667,575.4230476190477,66.15113095238095,12.989353778892701,-66.15113095238095,-39.64699213900764,171.94925404376954,t,paired t-test,1.4144320365860146,0.19088496030424074,0.9544248015212037,False,0.5756020810065189,
+paired_vs_baseline,HOSPITAL,BASELINE,patient_wait_s,10,639.834380952381,705.9855119047619,66.15113095238097,10.338789680841517,-66.15113095238097,-39.64699213900764,171.94925404376957,t,paired t-test,1.4144320365860144,0.19088496030424074,0.9544248015212037,False,0.5756020810065219,
+paired_vs_baseline,HOSPITAL,BASELINE,dispatch_delay_s,10,40.336797619047616,42.32846428571428,1.9916666666666685,4.937592432291092,-1.9916666666666685,0.0,5.233333333333337,bootstrap,none,,,,,7.369769075931198e-06,only 2 non-zero differences: no significance test
+paired_vs_baseline,HOSPITAL,BASELINE,initial_eta_s,10,322.2983690476191,453.57304761904754,131.27467857142855,40.730792079196945,,56.34702588121391,206.2023312616432,t,paired t-test,3.9633425546129746,0.003287596131785852,0.03616355744964437,True,0.08601265169277937,
+paired_vs_baseline,HOSPITAL,BASELINE,actual_travel_s,10,468.93511904761897,533.0945833333333,64.15946428571428,13.68194909692807,-64.15946428571428,-41.86093226674497,170.1798608381735,t,paired t-test,1.3689704662008975,0.20419987727776476,0.9544248015212037,False,0.4894285930259455,
+paired_vs_baseline,HOSPITAL,BASELINE,eta_abs_error_s,10,111.9562380952381,33.260547619047614,-78.69569047619048,-70.29147443239938,78.69569047619048,-131.52578102891482,-25.86559992346615,t,paired t-test,-3.3697087782652795,0.008260801307826098,0.07434721177043488,False,0.17513194824328948,
+paired_vs_baseline,HOSPITAL,BASELINE,reroutes,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,HOSPITAL,BASELINE,reroute_saved_s,10,0.0,0.0,0.0,,0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,HOSPITAL,BASELINE,reroute_improvement_pct,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,HOSPITAL,BASELINE,reactive_detours,10,0.9,0.8,-0.1,-11.11111111111111,0.1,-0.3,0.0,bootstrap,none,,,,,1.0036928213864587e-07,only 1 non-zero differences: no significance test
+paired_vs_baseline,HOSPITAL,BASELINE,ambulance_utilization,10,0.45641485890652567,0.4634335537918871,0.007018694885361545,1.5377884283120988,,-0.011603885087948766,0.025641274858671854,t,paired t-test,0.8525881446701294,0.4159992758519654,0.9544248015212037,False,0.05935163693334356,
+paired_vs_baseline,HOSPITAL,BASELINE,no_unit_available_pct,10,10.333333333333334,11.455555555555554,1.1222222222222225,10.860215053763442,-1.1222222222222225,-0.4444444444444445,3.4777777777777787,bootstrap,none,,,,,6.588676199222408e-05,only 3 non-zero differences: no significance test
+paired_vs_baseline,HOSPITAL,BASELINE,reserve_availability,10,0.5334740299823633,0.5264553350970017,-0.0070186948853615426,-1.3156582121895573,-0.0070186948853615426,-0.025641274858671844,0.011603885087948757,t,paired t-test,-0.8525881446701294,0.4159992758519654,0.9544248015212037,False,0.059351636933345185,
+paired_vs_baseline,HOSPITAL,BASELINE,hospital_wait_simulated_s,10,1777.3395714285714,1164.7985714285714,-612.5409999999999,-34.46392630011935,612.5409999999999,-1088.572275,-204.7804500000001,bootstrap,Wilcoxon signed-rank,0.0,0.001953125,0.0234375,True,0.02045066637315016,
+paired_vs_baseline,HOSPITAL,BASELINE,hospital_wait_predicted_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,HOSPITAL,BASELINE,hospital_capability_gap_pct,10,38.41666666666667,29.571428571428573,-8.845238095238093,-23.024480942051433,8.845238095238093,-14.678571428571427,-3.25,bootstrap,none,,,,,0.020542989454447522,only 5 non-zero differences: no significance test
+paired_vs_baseline,HOSPITAL,BASELINE,unsuitable_unit_pct,10,30.821428571428573,10.178571428571429,-20.642857142857146,-66.97566628041716,20.642857142857146,-34.78367318940835,-6.502041096305948,t,paired t-test,-3.3023120442701326,0.009195937744567987,0.07434721177043488,False,0.08113774020005368,
+paired_vs_baseline,HOSPITAL,BASELINE,unit_full_match_pct,10,43.535714285714285,66.98809523809524,23.452380952380953,53.86929176920974,23.452380952380953,6.489479797584345,40.41528210717756,t,paired t-test,3.1275883218301335,0.012168893283372095,0.08518225298360467,False,0.8590957266129085,
+paired_vs_baseline,HOSPITAL,BASELINE,time_to_treatment_s,10,2872.963452380952,2338.174952380952,-534.7885,-18.61452499706521,534.7885,-1047.065761904762,-116.10212053571429,bootstrap,Wilcoxon signed-rank,8.0,0.048828125,0.29296875,False,0.02176689948709346,
+paired_vs_baseline,HOSPITAL,BASELINE,critical_response_s,3,501.28888888888883,620.1666666666666,118.87777777777778,23.71442503768065,-118.87777777777778,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,HOSPITAL,BASELINE,critical_delay_s,3,144.82222222222222,191.88888888888889,47.066666666666656,32.49961638790854,-47.066666666666656,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,HOSPITAL,BASELINE,critical_delayed_pct,3,44.44444444444445,77.77777777777779,33.333333333333336,75.0,-33.333333333333336,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,HOSPITAL,BASELINE,critical_worst_delay_s,3,186.0666666666667,233.13333333333333,47.066666666666656,25.295592977427432,-47.066666666666656,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,HOSPITAL,BASELINE,review_rate,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,HOSPITAL,BASELINE,automatic_decision_rate,10,100.0,100.0,0.0,0.0,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,HOSPITAL,BASELINE,potentially_inappropriate_auto,10,0.5,0.5,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,HOSPITAL,BASELINE,under_triage_pct,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,HOSPITAL,BASELINE,resource_conflicts,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,HOSPITAL,BASELINE,reallocations,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,HOSPITAL,BASELINE,conflicts_escalated,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,HOSPITAL,BASELINE,donor_delay_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,HOSPITAL,BASELINE,critical_delay_avoided_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,HOSPITAL,BASELINE,manual_interventions,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,HOSPITAL,BASELINE,unserved_calls,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,HOSPITAL,BASELINE,decision_ms,10,34.93298843290528,62.54367959092163,27.610691158016333,79.03901840819414,,6.207280769206934,61.622267512945044,bootstrap,Wilcoxon signed-rank,2.0,0.005859375,0.05859375,False,3.168116856160878e-05,
+paired_vs_baseline,FULL,BASELINE,response_time_s,10,509.2719166666667,543.0025119047618,33.73059523809523,6.62329771860813,-33.73059523809523,-62.49806643564767,129.95925691183814,t,paired t-test,0.7929436645602289,0.44820861630388026,1.0,False,0.49107917265597356,
+paired_vs_baseline,FULL,BASELINE,patient_wait_s,10,639.834380952381,673.5649761904763,33.73059523809522,5.271769733268769,-33.73059523809522,-62.4980664356477,129.95925691183814,t,paired t-test,0.7929436645602286,0.4482086163038804,1.0,False,0.4910791726559705,
+paired_vs_baseline,FULL,BASELINE,dispatch_delay_s,10,40.336797619047616,44.06155952380953,3.724761904761908,9.234153737090478,-3.724761904761908,0.5450000000000113,7.357857142857142,bootstrap,none,,,,,0.022700056905778192,only 5 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,initial_eta_s,10,322.2983690476191,427.3511428571428,105.0527738095238,32.59488222666197,,46.31641023321744,163.78913738583014,t,paired t-test,4.045975444773666,0.002902420059267815,0.026121780533410334,True,0.1355038337470646,
+paired_vs_baseline,FULL,BASELINE,actual_travel_s,10,468.93511904761897,487.04809523809524,18.112976190476182,3.862576176265626,-18.112976190476182,-77.51642201678754,113.7423743977399,t,paired t-test,0.42847073804723307,0.6783803784364368,1.0,False,0.7006337172297881,
+paired_vs_baseline,FULL,BASELINE,eta_abs_error_s,10,111.9562380952381,41.47607142857142,-70.48016666666668,-62.95331806943274,70.48016666666668,-115.9461880952381,-31.624153571428575,bootstrap,Wilcoxon signed-rank,1.0,0.00390625,0.03125,True,0.02655332121998284,
+paired_vs_baseline,FULL,BASELINE,reroutes,10,0.0,0.9,0.9,,,0.1,2.0,bootstrap,none,,,,,0.00023112728684253085,only 4 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,reroute_saved_s,10,0.0,0.0,0.0,,0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,FULL,BASELINE,reroute_improvement_pct,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,FULL,BASELINE,reactive_detours,10,0.9,0.1,-0.8,-88.88888888888889,0.8,-1.3024999999999978,-0.3,bootstrap,none,,,,,0.004218829958559034,only 5 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,ambulance_utilization,10,0.45641485890652567,0.452336331569665,-0.004078527336860668,-0.8936009109414107,,-0.018455638227513227,0.007648787477954147,bootstrap,none,,,,,0.014198352326313448,only 9 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,no_unit_available_pct,10,10.333333333333334,10.377777777777776,0.04444444444444455,0.43010752688172144,-0.04444444444444455,-0.6666666666666667,0.8222222222222225,bootstrap,none,,,,,0.00035490670509585073,only 3 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,reserve_availability,10,0.5334740299823633,0.537552557319224,0.0040785273368606715,0.7645221899546841,0.0040785273368606715,-0.007648787477954158,0.018455638227513234,bootstrap,none,,,,,0.014198352326313448,only 9 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,hospital_wait_simulated_s,10,1777.3395714285714,1264.5345714285716,-512.805,-28.85239310729029,512.805,-1005.78,-85.3528125,bootstrap,Wilcoxon signed-rank,8.0,0.044921875,0.224609375,False,0.005560614517854726,
+paired_vs_baseline,FULL,BASELINE,hospital_wait_predicted_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,FULL,BASELINE,hospital_capability_gap_pct,10,38.41666666666667,29.571428571428573,-8.845238095238093,-23.024480942051433,8.845238095238093,-14.678571428571427,-3.25,bootstrap,none,,,,,0.020542989454447522,only 5 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,unsuitable_unit_pct,10,30.821428571428573,8.928571428571429,-21.892857142857146,-71.03128621089225,21.892857142857146,-34.07142857142857,-10.0,bootstrap,none,,,,,0.046348296014951884,only 6 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,unit_full_match_pct,10,43.535714285714285,69.8452380952381,26.309523809523807,60.432048126879955,26.309523809523807,6.597249363780261,46.021798255267356,t,paired t-test,3.019249650736041,0.014496927259247875,0.08698156355548725,False,0.42184169709840413,
+paired_vs_baseline,FULL,BASELINE,time_to_treatment_s,10,2872.963452380952,2396.512083333333,-476.4513690476191,-16.5839690251807,476.4513690476191,-1010.2501803571429,-33.43993452380965,bootstrap,Wilcoxon signed-rank,15.0,0.232421875,0.9296875,False,0.011495146390022476,
+paired_vs_baseline,FULL,BASELINE,critical_response_s,3,501.28888888888883,734.5,233.21111111111114,46.522298076070584,-233.21111111111114,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,FULL,BASELINE,critical_delay_s,3,144.82222222222222,306.22222222222223,161.4,111.44698480896118,-161.4,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,FULL,BASELINE,critical_delayed_pct,3,44.44444444444445,77.77777777777779,33.333333333333336,75.0,-33.333333333333336,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,FULL,BASELINE,critical_worst_delay_s,3,186.0666666666667,347.4666666666667,161.4,86.74310283052668,-161.4,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+paired_vs_baseline,FULL,BASELINE,review_rate,10,0.0,7.595238095238097,7.595238095238097,,,1.9916666666666742,13.690476190476193,bootstrap,none,,,,,0.0027635327480116283,only 4 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,automatic_decision_rate,10,100.0,86.61111111111111,-13.388888888888886,-13.388888888888888,,-22.222222222222218,-5.333333333333333,bootstrap,none,,,,,0.008226955885664326,only 5 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,potentially_inappropriate_auto,10,0.5,0.0,-0.5,-100.0,0.5,-0.9,-0.1,bootstrap,none,,,,,0.0020879422626686843,only 4 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,under_triage_pct,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,FULL,BASELINE,resource_conflicts,10,0.0,0.8,0.8,,,0.1,1.7,bootstrap,none,,,,,0.0007415933754584811,only 4 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,reallocations,10,0.0,0.3,0.3,,,0.0,0.6,bootstrap,none,,,,,4.713463965953735e-05,only 3 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,conflicts_escalated,10,0.0,0.5,0.5,,,0.0,1.1,bootstrap,none,,,,,6.0499293156181186e-05,only 3 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,donor_delay_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,FULL,BASELINE,critical_delay_avoided_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+paired_vs_baseline,FULL,BASELINE,manual_interventions,10,0.0,1.0,1.0,,-1.0,0.4,1.7,bootstrap,none,,,,,0.013501303026295786,only 5 non-zero differences: no significance test
+paired_vs_baseline,FULL,BASELINE,unserved_calls,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+paired_vs_baseline,FULL,BASELINE,decision_ms,10,34.93298843290528,52.28381474098493,17.35082630807965,49.668886306148266,,6.549475240641545,28.152177375517756,t,paired t-test,3.6338320797306887,0.005452986658300065,0.03817090660810045,True,0.3232388173338638,
+incremental,SEVERITY,BASELINE,response_time_s,10,509.2719166666667,563.7160119047619,54.44409523809522,10.690574810102962,-54.44409523809522,-0.5757552604165781,109.46394573660703,t,paired t-test,2.238484817734211,0.05197170908681232,0.15591512726043655,False,0.19523340253427074,
+incremental,SEVERITY,BASELINE,patient_wait_s,10,639.834380952381,694.2784761904762,54.444095238095244,8.509091861718382,-54.444095238095244,-0.5757552604165568,109.46394573660704,t,paired t-test,2.238484817734212,0.05197170908681218,0.15591512726043655,False,0.19523340253427285,
+incremental,SEVERITY,BASELINE,dispatch_delay_s,10,40.336797619047616,35.70346428571428,-4.633333333333331,-11.486616704409386,4.633333333333331,-13.899999999999995,0.0,bootstrap,none,,,,,1.0036928213864587e-07,only 1 non-zero differences: no significance test
+incremental,SEVERITY,BASELINE,initial_eta_s,10,322.2983690476191,359.81179761904764,37.51342857142858,11.639347937837696,,10.915357142857143,71.57945714285714,bootstrap,none,,,,,0.003955402732892173,only 6 non-zero differences: no significance test
+incremental,SEVERITY,BASELINE,actual_travel_s,10,468.93511904761897,528.0125476190476,59.07742857142857,12.598209469022395,-59.07742857142857,19.33028571428572,101.22305178571428,bootstrap,none,,,,,0.01621076839333902,only 6 non-zero differences: no significance test
+incremental,SEVERITY,BASELINE,eta_abs_error_s,10,111.9562380952381,130.02288095238094,18.066642857142856,16.13723644570306,-18.066642857142856,4.602785714285716,34.465357142857144,bootstrap,none,,,,,0.005295336378813213,only 6 non-zero differences: no significance test
+incremental,SEVERITY,BASELINE,reroutes,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,SEVERITY,BASELINE,reroute_saved_s,10,0.0,0.0,0.0,,0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,SEVERITY,BASELINE,reroute_improvement_pct,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,SEVERITY,BASELINE,reactive_detours,10,0.9,1.0,0.1,11.11111111111111,-0.1,0.0,0.3,bootstrap,none,,,,,1.0036928213864587e-07,only 1 non-zero differences: no significance test
+incremental,SEVERITY,BASELINE,ambulance_utilization,10,0.45641485890652567,0.4620773368606702,0.0056624779541446235,1.2406427712959947,,-0.00022760141093475396,0.013237654320987674,bootstrap,none,,,,,0.0016948673734545967,only 5 non-zero differences: no significance test
+incremental,SEVERITY,BASELINE,no_unit_available_pct,10,10.333333333333334,10.333333333333334,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,SEVERITY,BASELINE,reserve_availability,10,0.5334740299823633,0.5278115520282187,-0.0056624779541446235,-1.061434603354886,-0.0056624779541446235,-0.013237654320987658,0.00022760141093472542,bootstrap,none,,,,,0.001694867373454585,only 5 non-zero differences: no significance test
+incremental,SEVERITY,BASELINE,hospital_wait_simulated_s,10,1777.3395714285714,2065.670642857143,288.3310714285715,16.22262149921187,-288.3310714285715,10.65857142857142,575.8360714285716,bootstrap,none,,,,,0.00023197517580330539,only 6 non-zero differences: no significance test
+incremental,SEVERITY,BASELINE,hospital_wait_predicted_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,SEVERITY,BASELINE,hospital_capability_gap_pct,10,38.41666666666667,29.571428571428573,-8.845238095238093,-23.024480942051433,8.845238095238093,-14.678571428571427,-3.25,bootstrap,none,,,,,0.020542989454447522,only 5 non-zero differences: no significance test
+incremental,SEVERITY,BASELINE,unsuitable_unit_pct,10,30.821428571428573,12.178571428571429,-18.642857142857146,-60.48667439165702,18.642857142857146,-31.924671768749278,-5.361042516965016,t,paired t-test,-3.1752493171018967,0.011270486336305596,0.05635243168152798,False,0.1022268306479539,
+incremental,SEVERITY,BASELINE,unit_full_match_pct,10,43.535714285714285,61.142857142857146,17.607142857142854,40.44298605414273,17.607142857142854,4.088141234871088,31.12614447941462,t,paired t-test,2.946232676315324,0.016320548193548175,0.0652821927741927,False,0.061740530513362556,
+incremental,SEVERITY,BASELINE,time_to_treatment_s,10,2872.963452380952,3217.421547619048,344.4580952380952,11.989644175690001,-344.4580952380952,70.5570416666667,650.8440327380952,bootstrap,none,,,,,0.0012070868405419286,only 8 non-zero differences: no significance test
+incremental,SEVERITY,BASELINE,critical_response_s,3,501.28888888888883,634.6,133.31111111111113,26.593669651564863,-133.31111111111113,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,SEVERITY,BASELINE,critical_delay_s,3,144.82222222222222,206.32222222222222,61.5,42.465858523860675,-61.5,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,SEVERITY,BASELINE,critical_delayed_pct,3,44.44444444444445,77.77777777777779,33.333333333333336,75.0,-33.333333333333336,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,SEVERITY,BASELINE,critical_worst_delay_s,3,186.0666666666667,247.5666666666667,61.5,33.05266929415979,-61.5,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,SEVERITY,BASELINE,review_rate,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,SEVERITY,BASELINE,automatic_decision_rate,10,100.0,100.0,0.0,0.0,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,SEVERITY,BASELINE,potentially_inappropriate_auto,10,0.5,0.5,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,SEVERITY,BASELINE,under_triage_pct,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,SEVERITY,BASELINE,resource_conflicts,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,SEVERITY,BASELINE,reallocations,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,SEVERITY,BASELINE,conflicts_escalated,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,SEVERITY,BASELINE,donor_delay_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,SEVERITY,BASELINE,critical_delay_avoided_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,SEVERITY,BASELINE,manual_interventions,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,SEVERITY,BASELINE,unserved_calls,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,SEVERITY,BASELINE,decision_ms,10,34.93298843290528,41.70609608199968,6.773107649094397,19.388858362642797,,-3.4039703021752494,19.514624191685108,bootstrap,Wilcoxon signed-rank,22.0,0.625,0.625,False,0.025977540703891917,
+incremental,TRAFFIC,SEVERITY,response_time_s,10,563.7160119047619,572.4800476190477,8.764035714285717,1.5546898667420457,-8.764035714285717,-71.14617099837767,88.67424242694909,t,paired t-test,0.24809879715839786,0.8096260275391419,1.0,False,0.30706620155138553,
+incremental,TRAFFIC,SEVERITY,patient_wait_s,10,694.2784761904762,703.0425119047619,8.764035714285694,1.2623228308004277,-8.764035714285694,-71.14617099837768,88.67424242694908,t,paired t-test,0.24809879715839714,0.8096260275391425,1.0,False,0.30706620155138414,
+incremental,TRAFFIC,SEVERITY,dispatch_delay_s,10,35.70346428571428,41.70346428571428,6.0,16.805091942858688,-6.0,0.0,18.0,bootstrap,none,,,,,1.0036928213864587e-07,only 1 non-zero differences: no significance test
+incremental,TRAFFIC,SEVERITY,initial_eta_s,10,359.81179761904764,452.0895476190476,92.27775,25.646115722336454,,48.563769345238086,148.56184970238095,bootstrap,Wilcoxon signed-rank,0.0,0.001953125,0.01171875,True,0.006868152687038965,
+incremental,TRAFFIC,SEVERITY,actual_travel_s,10,528.0125476190476,530.7765833333334,2.764035714285734,0.5234791723699606,-2.764035714285734,-73.71609673488915,79.24416816346063,t,paired t-test,0.08175565325356578,0.9366303347124156,1.0,False,0.2997183685590192,
+incremental,TRAFFIC,SEVERITY,eta_abs_error_s,10,130.02288095238094,32.97004761904762,-97.05283333333334,-74.64288794591283,97.05283333333334,-150.55656726190477,-52.368022321428576,bootstrap,Wilcoxon signed-rank,0.0,0.001953125,0.01171875,True,0.015531880100872085,
+incremental,TRAFFIC,SEVERITY,reroutes,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,TRAFFIC,SEVERITY,reroute_saved_s,10,0.0,0.0,0.0,,0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,TRAFFIC,SEVERITY,reroute_improvement_pct,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,TRAFFIC,SEVERITY,reactive_detours,10,1.0,0.9,-0.1,-10.0,0.1,-0.3,0.0,bootstrap,none,,,,,1.0036928213864587e-07,only 1 non-zero differences: no significance test
+incremental,TRAFFIC,SEVERITY,ambulance_utilization,10,0.4620773368606702,0.45947601410934746,-0.0026013227513227515,-0.5629626349987223,,-0.015067901234567912,0.007417636684303358,bootstrap,none,,,,,0.005822854627329152,only 6 non-zero differences: no significance test
+incremental,TRAFFIC,SEVERITY,no_unit_available_pct,10,10.333333333333334,10.788888888888888,0.4555555555555556,4.408602150537634,-0.4555555555555556,-0.6666666666666667,2.0333333333333337,bootstrap,none,,,,,1.2757870890149796e-05,only 2 non-zero differences: no significance test
+incremental,TRAFFIC,SEVERITY,reserve_availability,10,0.5278115520282187,0.5304128747795415,0.0026013227513227597,0.4928506663650446,0.0026013227513227597,-0.007417636684303353,0.015067901234567898,bootstrap,none,,,,,0.005822854627329152,only 6 non-zero differences: no significance test
+incremental,TRAFFIC,SEVERITY,hospital_wait_simulated_s,10,2065.670642857143,1745.7485000000001,-319.92214285714283,-15.487567873581284,319.92214285714283,-764.97,8.60999999999999,bootstrap,none,,,,,1.74681477416196e-05,only 5 non-zero differences: no significance test
+incremental,TRAFFIC,SEVERITY,hospital_wait_predicted_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,TRAFFIC,SEVERITY,hospital_capability_gap_pct,10,29.571428571428573,29.571428571428573,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,TRAFFIC,SEVERITY,unsuitable_unit_pct,10,12.178571428571429,10.178571428571429,-2.0,-16.422287390029325,2.0,-6.0,0.0,bootstrap,none,,,,,1.0036928213864587e-07,only 1 non-zero differences: no significance test
+incremental,TRAFFIC,SEVERITY,unit_full_match_pct,10,61.142857142857146,68.23809523809524,7.095238095238095,11.60436137071651,7.095238095238095,0.0,16.0,bootstrap,none,,,,,0.00012072530536641615,only 3 non-zero differences: no significance test
+incremental,TRAFFIC,SEVERITY,time_to_treatment_s,10,3217.421547619048,2884.502738095238,-332.9188095238095,-10.347379247527437,332.9188095238095,-844.1548645833332,23.974751488095254,bootstrap,none,,,,,0.0001448659133569143,only 9 non-zero differences: no significance test
+incremental,TRAFFIC,SEVERITY,critical_response_s,3,634.6,620.1666666666666,-14.433333333333357,-2.2743985712784993,14.433333333333357,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,TRAFFIC,SEVERITY,critical_delay_s,3,206.32222222222222,191.88888888888889,-14.433333333333346,-6.995530184716469,14.433333333333346,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,TRAFFIC,SEVERITY,critical_delayed_pct,3,77.77777777777779,77.77777777777779,0.0,0.0,-0.0,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,TRAFFIC,SEVERITY,critical_worst_delay_s,3,247.5666666666667,233.13333333333333,-14.433333333333346,-5.830079439881518,14.433333333333346,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,TRAFFIC,SEVERITY,review_rate,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,TRAFFIC,SEVERITY,automatic_decision_rate,10,100.0,100.0,0.0,0.0,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,TRAFFIC,SEVERITY,potentially_inappropriate_auto,10,0.5,0.5,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,TRAFFIC,SEVERITY,under_triage_pct,10,14.202380952380953,14.202380952380953,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,TRAFFIC,SEVERITY,resource_conflicts,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,TRAFFIC,SEVERITY,reallocations,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,TRAFFIC,SEVERITY,conflicts_escalated,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,TRAFFIC,SEVERITY,donor_delay_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,TRAFFIC,SEVERITY,critical_delay_avoided_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,TRAFFIC,SEVERITY,manual_interventions,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,TRAFFIC,SEVERITY,unserved_calls,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,TRAFFIC,SEVERITY,decision_ms,10,41.70609608199968,46.086565900497945,4.380469818498254,10.503188334591837,,-7.10639982173222,15.867339458728727,t,paired t-test,0.8626641971831722,0.4107196003681246,1.0,False,0.21451741142320835,
+incremental,HOSPITAL,TRAFFIC,response_time_s,10,572.4800476190477,575.4230476190477,2.942999999999995,0.514079051704941,-2.942999999999995,-2.4300000000000184,9.461999999999989,bootstrap,none,,,,,0.002949177546781557,only 3 non-zero differences: no significance test
+incremental,HOSPITAL,TRAFFIC,patient_wait_s,10,703.0425119047619,705.9855119047619,2.9430000000000063,0.41860910971464577,-2.9430000000000063,-2.4299999999999953,9.462000000000023,bootstrap,none,,,,,0.0029491775467814178,only 3 non-zero differences: no significance test
+incremental,HOSPITAL,TRAFFIC,dispatch_delay_s,10,41.70346428571428,42.32846428571428,0.625,1.4986764545939573,-0.625,0.0,1.875,bootstrap,none,,,,,1.0036928213864587e-07,only 1 non-zero differences: no significance test
+incremental,HOSPITAL,TRAFFIC,initial_eta_s,10,452.0895476190476,453.57304761904754,1.483499999999998,0.32814295482231903,,-2.6600000000000135,6.204250000000007,bootstrap,none,,,,,0.007007138562737432,only 3 non-zero differences: no significance test
+incremental,HOSPITAL,TRAFFIC,actual_travel_s,10,530.7765833333334,533.0945833333333,2.317999999999995,0.4367185879683517,-2.317999999999995,-2.4299999999999953,7.6159999999999854,bootstrap,none,,,,,0.0021351843350569948,only 3 non-zero differences: no significance test
+incremental,HOSPITAL,TRAFFIC,eta_abs_error_s,10,32.97004761904762,33.260547619047614,0.2905000000000005,0.8811027613808218,-0.2905000000000005,-0.08249999999999957,0.9580000000000002,bootstrap,none,,,,,4.5300439607680234e-07,only 3 non-zero differences: no significance test
+incremental,HOSPITAL,TRAFFIC,reroutes,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,HOSPITAL,TRAFFIC,reroute_saved_s,10,0.0,0.0,0.0,,0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,HOSPITAL,TRAFFIC,reroute_improvement_pct,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,HOSPITAL,TRAFFIC,reactive_detours,10,0.9,0.8,-0.1,-11.11111111111111,0.1,-0.3,0.0,bootstrap,none,,,,,1.0036928213864587e-07,only 1 non-zero differences: no significance test
+incremental,HOSPITAL,TRAFFIC,ambulance_utilization,10,0.45947601410934746,0.4634335537918871,0.003957539682539674,0.8613158382622007,,0.000666666666666671,0.007632539682539663,bootstrap,none,,,,,0.0003435826247604839,only 4 non-zero differences: no significance test
+incremental,HOSPITAL,TRAFFIC,no_unit_available_pct,10,10.788888888888888,11.455555555555554,0.6666666666666667,6.179196704428425,-0.6666666666666667,0.0,1.6111111111111114,bootstrap,none,,,,,1.0085901193679866e-05,only 2 non-zero differences: no significance test
+incremental,HOSPITAL,TRAFFIC,reserve_availability,10,0.5304128747795415,0.5264553350970017,-0.003957539682539679,-0.7461243628719558,-0.003957539682539679,-0.007632539682539674,-0.000666666666666671,bootstrap,none,,,,,0.0003435826247604671,only 4 non-zero differences: no significance test
+incremental,HOSPITAL,TRAFFIC,hospital_wait_simulated_s,10,1745.7485000000001,1164.7985714285714,-580.9499285714286,-33.27798526370944,580.9499285714286,-1137.5505910714285,-119.06321428571427,bootstrap,none,,,,,0.0015411609584676858,only 8 non-zero differences: no significance test
+incremental,HOSPITAL,TRAFFIC,hospital_wait_predicted_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,HOSPITAL,TRAFFIC,hospital_capability_gap_pct,10,29.571428571428573,29.571428571428573,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,HOSPITAL,TRAFFIC,unsuitable_unit_pct,10,10.178571428571429,10.178571428571429,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,HOSPITAL,TRAFFIC,unit_full_match_pct,10,68.23809523809524,66.98809523809524,-1.25,-1.83182135380321,-1.25,-3.75,0.0,bootstrap,none,,,,,1.0036928213864587e-07,only 1 non-zero differences: no significance test
+incremental,HOSPITAL,TRAFFIC,time_to_treatment_s,10,2884.502738095238,2338.174952380952,-546.3277857142857,-18.940102864143913,546.3277857142857,-1079.6866904761905,-103.85400000000008,bootstrap,none,,,,,0.0014005906068198925,only 8 non-zero differences: no significance test
+incremental,HOSPITAL,TRAFFIC,critical_response_s,3,620.1666666666666,620.1666666666666,0.0,0.0,-0.0,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,HOSPITAL,TRAFFIC,critical_delay_s,3,191.88888888888889,191.88888888888889,0.0,0.0,-0.0,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,HOSPITAL,TRAFFIC,critical_delayed_pct,3,77.77777777777779,77.77777777777779,0.0,0.0,-0.0,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,HOSPITAL,TRAFFIC,critical_worst_delay_s,3,233.13333333333333,233.13333333333333,0.0,0.0,-0.0,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,HOSPITAL,TRAFFIC,review_rate,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,HOSPITAL,TRAFFIC,automatic_decision_rate,10,100.0,100.0,0.0,0.0,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,HOSPITAL,TRAFFIC,potentially_inappropriate_auto,10,0.5,0.5,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,HOSPITAL,TRAFFIC,under_triage_pct,10,14.202380952380953,14.202380952380953,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,HOSPITAL,TRAFFIC,resource_conflicts,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,HOSPITAL,TRAFFIC,reallocations,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,HOSPITAL,TRAFFIC,conflicts_escalated,10,0.0,0.0,0.0,,,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,HOSPITAL,TRAFFIC,donor_delay_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,HOSPITAL,TRAFFIC,critical_delay_avoided_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,HOSPITAL,TRAFFIC,manual_interventions,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,HOSPITAL,TRAFFIC,unserved_calls,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,HOSPITAL,TRAFFIC,decision_ms,10,46.086565900497945,62.54367959092163,16.457113690423682,35.709134253906015,,-1.1023795883674639,46.024749663373704,bootstrap,Wilcoxon signed-rank,22.0,0.625,0.625,False,4.050711510720208e-06,
+incremental,FULL,HOSPITAL,response_time_s,10,575.4230476190477,543.0025119047618,-32.420535714285705,-5.634208752748701,32.420535714285705,-93.31713690476184,6.469446428571408,bootstrap,none,,,,,3.0489926066116995e-05,only 8 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,patient_wait_s,10,705.9855119047619,673.5649761904763,-32.420535714285734,-4.592238107948495,32.420535714285734,-93.31713690476194,6.469446428571384,bootstrap,none,,,,,3.0489926066116765e-05,only 8 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,dispatch_delay_s,10,42.32846428571428,44.06155952380953,1.7330952380952396,4.09439668398306,-1.7330952380952396,-3.5285714285714227,6.567857142857141,bootstrap,none,,,,,0.029835904221821922,only 4 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,initial_eta_s,10,453.57304761904754,427.3511428571428,-26.22190476190476,-5.781186712824333,,-78.41357142857142,6.253333333333319,bootstrap,none,,,,,9.23713770029766e-06,only 4 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,actual_travel_s,10,533.0945833333333,487.04809523809524,-46.04648809523811,-8.637583185955235,46.04648809523811,-113.52184523809527,-0.9271428571428657,bootstrap,none,,,,,0.00018033757322650853,only 7 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,eta_abs_error_s,10,33.260547619047614,41.47607142857142,8.215523809523807,24.700506749380608,-8.215523809523807,-1.033761904761906,23.97731726190476,bootstrap,none,,,,,3.925732961602326e-06,only 7 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,reroutes,10,0.0,0.9,0.9,,,0.1,2.0,bootstrap,none,,,,,0.00023112728684253085,only 4 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,reroute_saved_s,10,0.0,0.0,0.0,,0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,FULL,HOSPITAL,reroute_improvement_pct,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,FULL,HOSPITAL,reactive_detours,10,0.8,0.1,-0.7,-87.5,0.7,-1.2,-0.2,bootstrap,none,,,,,0.008499773374645107,only 5 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,ambulance_utilization,10,0.4634335537918871,0.452336331569665,-0.011097222222222213,-2.3945659806940984,,-0.02396388888888887,-0.001332754629629641,bootstrap,none,,,,,0.0001657432822298438,only 6 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,no_unit_available_pct,10,11.455555555555554,10.377777777777776,-1.077777777777778,-9.408341416100876,1.077777777777778,-3.2111111111111112,0.0,bootstrap,none,,,,,1.1520321879114991e-07,only 2 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,reserve_availability,10,0.5264553350970017,0.537552557319224,0.011097222222222213,2.1079133370692316,0.011097222222222213,0.0013327546296296163,0.023963888888888864,bootstrap,none,,,,,0.00016574328222984238,only 6 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,hospital_wait_simulated_s,10,1164.7985714285714,1264.5345714285716,99.73600000000005,8.562510501509154,-99.73600000000005,0.0,287.5100000000001,bootstrap,none,,,,,2.084493284586329e-07,only 3 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,hospital_wait_predicted_s,10,1132.1390714285715,1237.3479285714284,105.2088571428571,9.292926973194291,,-27.90578571428572,340.49235714285703,bootstrap,none,,,,,1.2456105475993012e-06,only 6 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,hospital_capability_gap_pct,10,29.571428571428573,29.571428571428573,0.0,0.0,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,FULL,HOSPITAL,unsuitable_unit_pct,10,10.178571428571429,8.928571428571429,-1.25,-12.280701754385964,1.25,-3.75,0.0,bootstrap,none,,,,,1.0036928213864587e-07,only 1 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,unit_full_match_pct,10,66.98809523809524,69.8452380952381,2.8571428571428577,4.265150168828861,2.8571428571428577,-2.5,9.821428571428573,bootstrap,none,,,,,0.002119642157291545,only 3 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,time_to_treatment_s,10,2338.174952380952,2396.512083333333,58.33713095238088,2.4949857106704725,-58.33713095238088,-15.123644642857155,185.98740416666644,bootstrap,none,,,,,2.8711914038320875e-06,only 7 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,critical_response_s,3,620.1666666666666,734.5,114.33333333333337,18.43590432679388,-114.33333333333337,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,FULL,HOSPITAL,critical_delay_s,3,191.88888888888889,306.22222222222223,114.33333333333337,59.58309206716852,-114.33333333333337,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,FULL,HOSPITAL,critical_delayed_pct,3,77.77777777777779,77.77777777777779,0.0,0.0,-0.0,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,FULL,HOSPITAL,critical_worst_delay_s,3,233.13333333333333,347.4666666666667,114.33333333333337,49.04203603088364,-114.33333333333337,,,,,,,,,,insufficient pairs (n=3 < 10): no significance test
+incremental,FULL,HOSPITAL,review_rate,10,0.0,7.595238095238097,7.595238095238097,,,1.9916666666666742,13.690476190476193,bootstrap,none,,,,,0.0027635327480116283,only 4 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,automatic_decision_rate,10,100.0,86.61111111111111,-13.388888888888886,-13.388888888888888,,-22.222222222222218,-5.333333333333333,bootstrap,none,,,,,0.008226955885664326,only 5 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,potentially_inappropriate_auto,10,0.5,0.0,-0.5,-100.0,0.5,-0.9,-0.1,bootstrap,none,,,,,0.0020879422626686843,only 4 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,under_triage_pct,10,14.202380952380953,9.857142857142856,-4.345238095238095,-30.595138306789604,4.345238095238095,-8.928571428571427,0.0,bootstrap,none,,,,,0.00016080955585080805,only 3 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,resource_conflicts,10,0.0,0.8,0.8,,,0.1,1.7,bootstrap,none,,,,,0.0007415933754584811,only 4 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,reallocations,10,0.0,0.3,0.3,,,0.0,0.6,bootstrap,none,,,,,4.713463965953735e-05,only 3 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,conflicts_escalated,10,0.0,0.5,0.5,,,0.0,1.1,bootstrap,none,,,,,6.0499293156181186e-05,only 3 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,donor_delay_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,FULL,HOSPITAL,critical_delay_avoided_s,0,,,,,,,,,,,,,,,insufficient pairs (n=0 < 10): no significance test
+incremental,FULL,HOSPITAL,manual_interventions,10,0.0,1.0,1.0,,-1.0,0.4,1.7,bootstrap,none,,,,,0.013501303026295786,only 5 non-zero differences: no significance test
+incremental,FULL,HOSPITAL,unserved_calls,10,0.0,0.0,0.0,,-0.0,0.0,0.0,exact,none,,,,,,identical results in every scenario
+incremental,FULL,HOSPITAL,decision_ms,10,62.54367959092163,52.28381474098493,-10.259864849936688,-16.404319216655,,-43.41437379685105,10.408504558300736,bootstrap,Wilcoxon signed-rank,24.0,0.76953125,0.76953125,False,1.5821459788057884e-05,
