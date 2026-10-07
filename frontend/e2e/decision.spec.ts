@@ -34,6 +34,12 @@ test("decision panels: confidence, explanation, counterfactuals, traffic, trace"
   await expect(page.getByTestId("traffic-panel")).toContainText("ETA (predicted");
   await expect(page.getByTestId("decision-trace")).toContainText("Automatic dispatch authorized");
   await expect(page.getByTestId("decision-trace")).toContainText("route candidates evaluated");
+  await expect(page.getByTestId("decision-summary")).toContainText("reallocation considered");
+  await expect(page.getByTestId("decision-summary")).toContainText("rerouting considered");
+  await expect(page.getByTestId("route-status")).toContainText("Route status");
+  await expect(page.getByTestId("route-status")).toContainText("Remaining distance");
+  await expect(page.getByTestId("route-checkpoint")).toBeVisible();
+  await expect(page.locator("[data-testid=alternatives] [data-testid=rejection-codes]").first()).toContainText(/[A-Z_]{5,}/);
   fs.mkdirSync(SHOTS, { recursive: true });
   await page.screenshot({ path: `${SHOTS}/09-decision-panels.png`, fullPage: true });
   await request.post(`/api/emergencies/${inc.id}/cancel`, { headers: auth });

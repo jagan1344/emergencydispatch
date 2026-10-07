@@ -12,7 +12,54 @@ const CHARTS = ["response_time_s", "patient_wait_s", "critical_delay_s", "hospit
 const TABLE = ["response_time_s", "patient_wait_s", "dispatch_delay_s", "actual_travel_s", "eta_abs_error_s", "reroute_saved_s",
   "reactive_detours", "ambulance_utilization", "no_unit_available_pct", "hospital_wait_simulated_s", "hospital_capability_gap_pct",
   "unsuitable_unit_pct", "critical_response_s", "critical_delay_s", "critical_delayed_pct", "review_rate", "automatic_decision_rate",
-  "potentially_inappropriate_auto", "under_triage_pct", "resource_conflicts", "reallocations", "manual_interventions"];
+  "potentially_inappropriate_auto", "under_triage_pct", "resource_conflicts", "reallocations", "manual_interventions",
+  "traffic_pred_accuracy", "traffic_persistence_accuracy", "traffic_fallback_accuracy", "traffic_pred_mae", "traffic_persistence_mae",
+  "traffic_fallback_mae", "priority_violations", "route_failures", "closure_waits", "unsafe_reallocations", "replacement_eta_s",
+  "hospital_load_pred_mae", "hospital_load_persistence_mae", "hospital_wait_pred_mae_s", "hospital_wait_persistence_mae_s"];
+const KEY_TESTS = ["response_time_s", "patient_wait_s", "critical_delay_s", "hospital_wait_simulated_s", "priority_violations",
+  "route_failures", "unsuitable_unit_pct", "under_triage_pct", "manual_interventions"];
+const pv = (p: number | null | undefined) => (p == null ? "—" : p < 0.0001 ? "<0.0001" : p.toFixed(4));
+const eff = (r: any) => (r.effect_size == null ? "—" : `${r.effect_size.toFixed(2)} ${r.effect_size_type === "rank_biserial" ? "r" : r.effect_size_type === "cohens_dz" ? "dz" : ""} (${r.effect_interpretation || "?"})`);
+
+function ModelQuality() {
+  const [q, setQ] = useState<any>(null);
+  useEffect(() => { api("/api/evaluation/model-quality").then(setQ).catch(() => setQ(null)); }, []);
+  if (!q) return null;
+  const c = q.severity_calibration, t = q.traffic_prediction;
+  const n = (v: any, d = 4) => (v == null ? "—" : Number(v).toFixed(d));
+  return (
+    <div className="two-col">
+      <Panel title="Severity probability calibration (untouched test split)">
+        {c.status === "NOT RUN" ? <p className="muted">NOT RUN - <code>{c.how_to_run}</code></p> : (
+          <div data-testid="calibration-report">
+            <table className="table compact"><thead><tr><th /><th>Raw</th><th>Calibrated</th></tr></thead><tbody>
+              <tr><td>Brier score (multiclass, lower = better)</td><td>{n(c.brier_score_raw)}</td><td>{n(c.brier_score_calibrated)}</td></tr>
+              <tr><td>ECE (top-label, {c.ece_bins?.split(" ")[0]} bins)</td><td>{n(c.ece_raw)}</td><td>{n(c.ece_calibrated)}</td></tr>
+            </tbody></table>
+            <div className="small">Status <b>{c.status}</b> · method {c.calibration_method || "none"} · version {c.calibration_version || "—"} ·
+              deployed probabilities: {c.deployed_probabilities}</div>
+            <div className="muted small">accuracy {n(c.accuracy)} · precision {n(c.precision)} · recall {n(c.recall)} · F1 {n(c.f1)} ·
+              test samples {c.sample_count} · calibration samples {c.calibration_sample_count} · dataset {c.dataset}</div>
+            <div className="muted small">{c.split}. {c.note}. Model confidence, not clinical certainty.</div>
+          </div>)}
+      </Panel>
+      <Panel title="Traffic prediction: ML vs fallback vs persistence">
+        {t.status === "NOT RUN" ? <p className="muted">NOT RUN - <code>{t.how_to_run}</code></p> :
+          t.status !== "EVALUATED" ? <p className="muted">{t.status}: {t.reason}</p> : (
+          <div data-testid="traffic-comparison">
+            <table className="table compact"><thead><tr><th>Method</th><th>Accuracy</th><th>MAE (levels)</th></tr></thead><tbody>
+              {["ml", "fallback", "persistence"].map((k) => (
+                <tr key={k} className={t.comparison.best_by_accuracy === k ? "selected" : ""}><td>{k === "ml" ? "ML (RandomForest)" : k === "fallback" ? "Rule fallback" : "Persistence (no change)"}</td>
+                  <td>{n(t.comparison[k]?.accuracy)}</td><td>{n(t.comparison[k]?.mae_levels)}</td></tr>))}
+            </tbody></table>
+            <div className="muted small">Source <b>{t.source}</b> traffic history ({t.history_events} events) · {t.samples} samples, {t.holdout_samples} hold-out ·
+              horizon {t.horizon_min} min · deployed {t.deployed_method} · {t.note}</div>
+            <div className="muted small">{t.reason}. Simulated traffic, not real-time Bengaluru traffic.</div>
+          </div>)}
+      </Panel>
+    </div>
+  );
+}
 const axis = { stroke: "var(--muted)", fontSize: 12 };
 const SERIES = "#58a6ff";
 
@@ -79,6 +126,7 @@ export default function Evaluation() {
       <div className="toolbar"><h1>Research evaluation</h1>
         <span className="muted">simulated decision-support experiments - same seeded scenarios replayed under each strategy; not clinical or real-world performance</span></div>
       <ErrorNote error={error} />
+      <ModelQuality />
       <div className="two-col">
         <Panel title="Run an experiment">
           {user?.role === "ADMIN" ? (
@@ -111,6 +159,11 @@ export default function Evaluation() {
             seed <b>{run.random_seed}</b> · {run.scenario_count} scenarios · strategies {s.strategies.join(", ")} · code <code>{(run.git_commit || "").slice(0, 10)}</code> ·
             city {run.city} · routing {run.routing?.graph_source} (OSRM: {run.routing?.osrm}) · traffic prediction <b>{s.traffic_model?.label}</b> ({s.traffic_model?.version}) ·
             status {run.status}{s.failures?.length ? ` · ${s.failures.length} failed simulations (see failures.csv)` : ""}
+          </div>
+          <div className="small" data-testid="experiment-denominators">
+            Design: <b>{run.scenario_count} scenarios × {s.strategies.length} strategy configurations = {run.scenario_count * s.strategies.length} simulation runs</b>
+            {" "}(every scenario replayed once under every configuration). Unit of analysis: the scenario. Table values are means over the
+            scenarios of one configuration (n per metric in the report); paired tests use one pair per scenario.
           </div>
         </Panel>
         {prog.length > 0 && (
@@ -147,14 +200,29 @@ export default function Evaluation() {
         {abl.length > 0 && (
           <Panel title="Ablation: FULL minus one capability vs FULL (paired, Holm-adjusted)">
             <div className="table-wrap"><table className="table" data-testid="ablation-table">
-              <thead><tr><th>Configuration</th><th>Metric</th><th>FULL</th><th>Ablated</th><th>Mean diff</th><th>95% CI</th><th>Test</th><th>p (Holm)</th></tr></thead>
+              <thead><tr><th>Configuration</th><th>Metric</th><th>FULL</th><th>Ablated</th><th>Median FULL / abl.</th><th>Mean diff</th><th>95% CI</th><th>Test</th><th>p raw</th><th>p (Holm)</th><th>Effect size</th></tr></thead>
               <tbody>{vsFull.map((r: any) => (
                 <tr key={`${r.strategy}|${r.metric}`}><td>{r.strategy}</td><td>{comp[r.metric]?.label}</td>
                   <td>{fmt(r.reference_mean, comp[r.metric]?.unit)}</td><td>{fmt(r.strategy_mean, comp[r.metric]?.unit)}</td>
+                  <td>{fmt(r.reference_median, comp[r.metric]?.unit)} / {fmt(r.strategy_median, comp[r.metric]?.unit)}</td>
                   <td>{r.mean_difference == null ? "—" : r.mean_difference.toFixed(2)}</td>
                   <td>{r.ci95_low == null ? "—" : `[${r.ci95_low.toFixed(1)}, ${r.ci95_high.toFixed(1)}]`}</td>
                   <td>{r.test || "—"}{r.note ? <span className="muted small"> ({r.note})</span> : null}</td>
-                  <td>{r.p_adjusted == null ? "—" : `${r.p_adjusted.toFixed(4)}${r.significant ? " *" : ""}`}</td></tr>))}</tbody></table></div>
+                  <td>{pv(r.p_value)}</td>
+                  <td>{r.p_adjusted == null ? "—" : `${pv(r.p_adjusted)}${r.significant ? " *" : ""}`}</td><td>{eff(r)}</td></tr>))}</tbody></table></div>
+          </Panel>)}
+        {prog.length > 1 && (s?.paired_vs_baseline || []).length > 0 && (
+          <Panel title="Statistical tests: each system vs BASELINE (paired by scenario, Holm-adjusted)">
+            <div className="table-wrap"><table className="table" data-testid="stat-tests">
+              <thead><tr><th>System</th><th>Metric</th><th>Median BASELINE</th><th>Median system</th><th>Median diff</th><th>Test</th><th>p raw</th><th>p (Holm)</th><th>Effect size</th></tr></thead>
+              <tbody>{(s.paired_vs_baseline as any[]).filter((r) => KEY_TESTS.includes(r.metric)).map((r) => (
+                <tr key={`${r.strategy}|${r.metric}`}><td>{r.strategy}</td><td>{comp[r.metric]?.label || r.metric}</td>
+                  <td>{fmt(r.reference_median, comp[r.metric]?.unit)}</td><td>{fmt(r.strategy_median, comp[r.metric]?.unit)}</td>
+                  <td>{r.median_difference == null ? "—" : r.median_difference.toFixed(2)}</td>
+                  <td>{r.test || "—"}{r.note ? <span className="muted small"> ({r.note})</span> : null}</td>
+                  <td>{pv(r.p_value)}</td><td>{r.p_adjusted == null ? "—" : `${pv(r.p_adjusted)}${r.significant ? " *" : ""}`}</td>
+                  <td>{eff(r)}</td></tr>))}</tbody></table></div>
+            <p className="muted small">Effect size: rank-biserial r for Wilcoxon (|r| 0.1 small, 0.3 medium, 0.5 large); Cohen's dz for paired t. Unit of analysis = scenario.</p>
           </Panel>)}
       </>)}
     </div>

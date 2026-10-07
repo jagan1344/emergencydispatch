@@ -77,9 +77,11 @@ export default function Traffic() {
           </table>
         </div>
         <h3>Predicted traffic (next {pred?.model?.horizon_min ?? "?"} min)</h3>
-        <div className="muted small" data-testid="traffic-model">model {pred?.model?.model_version ?? "—"} · {pred?.model?.method ?? "—"}
+        <div className="muted small" data-testid="traffic-model">traffic source <b>{pred?.model?.traffic_source ?? "SIMULATION"}</b> (simulated, not a live feed) · prediction <b>{pred?.model?.label ?? "—"}</b> · model {pred?.model?.model_version ?? "—"} · {pred?.model?.method ?? "—"}
+          {pred?.model?.training_samples != null && ` · ${pred.model.training_samples} training samples`}
           {pred?.model?.metrics?.accuracy_model != null && ` · hold-out accuracy ${(pred.model.metrics.accuracy_model * 100).toFixed(0)}% vs persistence ${(pred.model.metrics.accuracy_persistence * 100).toFixed(0)}%`}
-          {pred?.model?.metrics?.reason && ` · ${pred.model.metrics.reason}`}</div>
+          {pred?.model?.metrics?.reason && ` · ${pred.model.metrics.reason}`}
+          {pred?.model?.confidence_meaning && <div>confidence column = {pred.model.confidence_meaning}</div>}</div>
         <div className="scroll">
           <table className="table compact" data-testid="traffic-predictions">
             <thead><tr><th>Road</th><th>Current</th><th>Predicted</th><th>Δ time</th><th>Conf.</th></tr></thead>

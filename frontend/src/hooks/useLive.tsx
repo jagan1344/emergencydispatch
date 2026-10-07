@@ -97,6 +97,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           debounced("routes"); debounced("incidents");
           break;
         case "ROUTE_RECALCULATED":
+        case "ROUTE_UNAVAILABLE":          // no drivable route: shown to the dispatcher in the same banner slot
           setLastReroute(ev); debounced("routes", 100);
           break;
         case "TRAFFIC_CHANGED":

@@ -48,7 +48,14 @@ export default function Layout() {
             title={health?.routing.mode === "synthetic-fallback" ? "Synthetic demo network - install an OSM extract for real roads" : ""} />
           <span className="clock">time ×{health?.sim_time_scale ?? "?"}</span>
         </div>
-        {banner && (
+        {banner && banner.decision === "ROUTE_UNAVAILABLE" && (
+          <div className="reroute-banner unavailable" role="alert" data-testid="route-unavailable-banner">
+            <b>ROUTE UNAVAILABLE</b> · {banner.ambulance_id} · no drivable route: closed {(banner.blocked_roads || []).join(", ")}
+            <span>Dispatcher review required (reopen / escort / alternative unit)</span>
+            <button className="link" onClick={() => setBanner(null)}>dismiss</button>
+          </div>
+        )}
+        {banner && banner.decision !== "ROUTE_UNAVAILABLE" && (
           <div className="reroute-banner" role="status" data-testid="reroute-banner">
             <b>ROUTE RECALCULATED</b> · {banner.ambulance_id} · {banner.reason}
             <span>Old ETA: {banner.old_eta_s != null ? fmtMin(banner.old_eta_s) : "∞ (blocked)"}</span>

@@ -76,12 +76,26 @@ test("dispatch workflow: create emergency → dispatch → map → traffic event
   const active = detail.routes.find((r: any) => r.active);
   const full = await (await request.get(`/api/routes/${active.id}`, { headers: auth })).json();
   const progress = full.progress_m || 0;
-  const ahead = full.segments.filter((s: any) => s.road_id && s.cum_distance_m > progress + 150);
+  // Blocking a road ahead has two legitimate outcomes: a drivable detour exists -> ROUTE RECALCULATED, or the road
+  // is a bottleneck with no drivable alternative -> ROUTE UNAVAILABLE (dispatcher review; never a walking-speed
+  // "route"). Roads ahead are tried in turn until a detour exists; an unavailable outcome must show its banner.
+  const ahead = [...new Set(full.segments.filter((s: any) => s.road_id && s.cum_distance_m > progress + 150)
+    .map((s: any) => s.road_id as string))];
   expect(ahead.length).toBeGreaterThan(2);
-  const road = ahead[Math.floor(ahead.length / 2)].road_id;
-  const r = await request.post("/api/traffic/events", { headers: auth, data: { event_type: "BLOCK", road_id: road } });
-  expect(r.status()).toBe(201);
-  await expect(page.getByTestId("reroute-banner")).toContainText("ROUTE RECALCULATED", { timeout: 20_000 });
+  const order = [...ahead.slice(Math.floor(ahead.length / 2)), ...ahead.slice(0, Math.floor(ahead.length / 2))];
+  let road = "";
+  for (const candidate of order.slice(0, 6)) {
+    const r = await request.post("/api/traffic/events", { headers: auth, data: { event_type: "BLOCK", road_id: candidate } });
+    expect(r.status()).toBe(201);
+    const outcome = page.getByTestId("reroute-banner").or(page.getByTestId("route-unavailable-banner"));
+    await expect(outcome).toBeVisible({ timeout: 20_000 });
+    if (await page.getByTestId("reroute-banner").isVisible()) { road = candidate; break; }
+    await expect(page.getByTestId("route-unavailable-banner")).toContainText("Dispatcher review required");
+    await request.post("/api/traffic/events", { headers: auth, data: { event_type: "CLEAR", road_id: candidate } });
+    await page.getByTestId("route-unavailable-banner").getByText("dismiss").click();
+  }
+  expect(road, "no road ahead with a drivable detour").not.toBe("");
+  await expect(page.getByTestId("reroute-banner")).toContainText("ROUTE RECALCULATED");
   await shot(page, "05-traffic-reroute");
 
   await page.goto(`/emergencies/${incidentId}`);

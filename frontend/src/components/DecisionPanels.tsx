@@ -9,6 +9,37 @@ const MODE_LABEL: Record<string, string> = {
   HUMAN_APPROVED: "HUMAN APPROVED",
 };
 
+export const Codes = ({ codes }: { codes?: string[] | null }) => !codes?.length ? null :
+  <span data-testid="rejection-codes">{codes.map((c) => <span key={c} className="code-chip">{c}</span>)}</span>;
+
+const yes = (b: boolean) => (b ? "yes" : "no");
+
+export function DecisionSummaryPanel({ dec }: { dec: any }) {
+  const s = dec.summary;
+  if (!s) return null;
+  const c = s.considered;
+  return (
+    <Panel title="Decision summary" className="wide">
+      <div className="summary-grid" data-testid="decision-summary">
+        <div><h3>Considered</h3><ul className="reasons small">
+          <li>severity model: {yes(c.severity_model)}</li>
+          <li>ambulance candidates: {c.ambulance_candidates}{c.ambulances_without_drivable_route > 0 && ` (+${c.ambulances_without_drivable_route} with no drivable route)`}</li>
+          <li>hospital candidates: {c.hospital_candidates}</li>
+          <li>reallocation considered: {yes(c.reallocation_considered)}</li>
+          <li>rerouting considered: {yes(c.rerouting_considered)} · reroutes applied: {c.reroutes_applied}</li>
+        </ul></div>
+        <div><h3>Why</h3><ul className="reasons small">
+          {s.why.decision_reason && <li>{s.why.decision_reason}</li>}
+          {s.why.ambulance && <li>{s.why.ambulance}</li>}
+          {s.why.hospital && <li>{s.why.hospital}</li>}
+        </ul></div>
+        <div><h3>Constraints</h3><ul className="reasons small">{s.constraints.map((x: string) => <li key={x}>{x}</li>)}</ul>
+          {s.route_status && <div className="small">Route status: <b className={s.route_status === "UNAVAILABLE" ? "st-bad" : ""}>{s.route_status}</b></div>}</div>
+      </div>
+    </Panel>
+  );
+}
+
 export function AIDecisionPanel({ dec, canAct, onReview }: { dec: any; canAct: boolean; onReview: (sev?: string) => void }) {
   const c = dec.confidence;
   const probs = Object.entries(c.class_probabilities || {}).sort((a: any, b: any) => b[1] - a[1]) as [string, number][];
@@ -17,11 +48,14 @@ export function AIDecisionPanel({ dec, canAct, onReview }: { dec: any; canAct: b
     <Panel title="AI decision" className={needsReview ? "review" : ""}>
       <div className="sev-row" data-testid="ai-decision">
         <div><div className="muted small">Severity (ML)</div><div className="big">{c.predicted_severity || "—"}</div></div>
-        <div><div className="muted small">ML confidence</div><div className="big">{c.confidence != null ? pct(c.confidence) : "n/a"}</div>
-          <div className="muted small">level {c.confidence_level}</div></div>
+        <div><div className="muted small" title={c.label}>Model confidence{c.calibration ? " (calibrated)" : ""}</div>
+          <div className="big">{c.confidence != null ? pct(c.confidence) : "n/a"}</div>
+          <div className="muted small">level {c.confidence_level}{c.raw_probability != null && c.calibration ? ` · raw ${pct(c.raw_probability)}` : ""}</div></div>
         <div><div className="muted small">Decision</div><div className={`big mode-${(c.decision_mode || "").toLowerCase()}`}>{MODE_LABEL[c.decision_mode] || c.decision_mode}</div></div>
       </div>
       <div className="small">{c.decision_reason}</div>
+      <div className="muted small" data-testid="confidence-basis">{c.probability_type || "model probability"}{c.calibration ? ` (${c.calibration} calibration)` : ""} · threshold applied: {c.threshold_applied || "n/a"} · not clinical certainty</div>
+      {c.calibration && <div className="muted small" data-testid="calibration-info">Calibrated confidence {pct(c.calibrated_confidence ?? c.confidence)} · raw {pct(c.raw_confidence ?? c.raw_probability)} · calibration version {c.calibration_version || "—"}</div>}
       <div className="muted small">Thresholds: auto ≥ {pct(c.thresholds.high)}, review &lt; {pct(c.thresholds.low)} · model {c.model_version}
         {c.reviewed_by && ` · reviewed by ${c.reviewed_by}`}</div>
       <div className="probs">{probs.map(([k, v]) => <div key={k}><span>{k}</span><Bar value={v} /><span>{pct(v)}</span></div>)}</div>
@@ -73,7 +107,7 @@ export function AmbulanceDecisionPanel({ dec, legacy }: { dec: any; legacy: any 
               <tr key={cf.ambulance_id} className={c.suitable === false ? "dim" : ""}>
                 <td>{cf.ambulance_id}</td><td>{c.equipment_level}</td><td>{fmtMin(cf.eta_s)}</td>
                 <td>{cf.eta_delta_s >= 0 ? "+" : "−"}{fmtMin(Math.abs(cf.eta_delta_s))}</td><td>{cf.score.toFixed(3)}</td>
-                <td>{cf.score_delta >= 0 ? "+" : ""}{cf.score_delta.toFixed(3)}</td>
+                <td>{cf.score_delta >= 0 ? "+" : ""}{cf.score_delta.toFixed(3)}<div><Codes codes={cf.rejection_codes} /></div></td>
                 <td><button className="small" onClick={() => setOpen(open === cf.ambulance_id ? null : cf.ambulance_id)}>Why not {cf.ambulance_id}?</button></td>
               </tr>
               {open === cf.ambulance_id && <tr key={cf.ambulance_id + "-x"}><td colSpan={7} className="why-not">
@@ -83,6 +117,9 @@ export function AmbulanceDecisionPanel({ dec, legacy }: { dec: any; legacy: any 
               </td></tr>}
             </>);
           })}
+          {(x.unreachable || []).map((u: any) => (
+            <tr key={"u-" + u.ambulance_id} className="dim"><td>{u.ambulance_id}</td><td colSpan={5} className="small">{u.reason || "no drivable route"}</td>
+              <td><Codes codes={u.rejection_codes} /></td></tr>))}
         </tbody>
       </table>
       <details><summary className="muted small">Raw decision record &amp; per-component scores</summary>
@@ -158,17 +195,22 @@ export function HospitalDecisionPanel({ dec }: { dec: any }) {
         <thead><tr><th>Hospital</th><th>ETA</th><th>Load now</th><th>Predicted</th><th>Est. wait</th><th>Time to treatment</th><th>Missing</th><th>Score</th><th>Why not?</th></tr></thead>
         <tbody>{h.candidates.map((c: any) => {
           const cf = h.counterfactual?.counterfactuals?.find((x: any) => x.hospital_id === c.hospital_id);
+          const wn = h.counterfactual?.why_not?.find((x: any) => x.hospital_id === c.hospital_id);
+          const unk: string[] = c.unknown_capabilities || [];
+          const lacking = c.missing_capabilities.filter((m: string) => !unk.includes(m));
           return (<tr key={c.hospital_id} className={c.hospital_id === h.selected ? "selected" : ""}>
             <td>{c.name}</td><td>{fmtMin(c.eta_s)}</td>
             <td>{c.forecast ? `${c.forecast.current_load}/${c.forecast.capacity}` : "—"}</td>
             <td>{c.forecast ? `${c.forecast.predicted_load_pct.toFixed(0)}%` : "—"}</td>
             <td>{c.forecast ? `${c.forecast.expected_wait_min.toFixed(0)} min` : "—"}</td>
-            <td>{fmtMin(c.time_to_treatment_s)}</td><td>{c.missing_capabilities.join(", ") || "—"}</td>
-            <td><b>{c.score.toFixed(3)}</b></td><td className="small">{c.hospital_id === h.selected ? "selected" : cf?.why_not}</td>
+            <td>{fmtMin(c.time_to_treatment_s)}</td>
+            <td>{lacking.join(", ") || (unk.length ? "" : "—")}{unk.length > 0 && <span className="muted small">{lacking.length ? "; " : ""}unknown: {unk.join(", ")}</span>}</td>
+            <td><b>{c.score.toFixed(3)}</b></td>
+            <td className="small" data-testid="hospital-why-not">{c.hospital_id === h.selected ? "selected" : <>{wn?.reasons?.join("; ") || cf?.why_not}<div><Codes codes={wn?.rejection_codes} /></div></>}</td>
           </tr>);
         })}</tbody>
       </table>
-      {f && <div className="muted small">Estimates (not actual hospital data): {f.method}, {f.data_points} observations,
+      {f && <div className="muted small">Estimates (not actual hospital data; source {f.source || "SIMULATION"}): {f.method}, {f.data_points} observations,
         confidence {f.confidence}, mean stay {f.mean_stay_min} min, model {f.model_version}.</div>}
     </Panel>
   );
@@ -187,6 +229,13 @@ export function ConflictPanel({ dec, canAct, onAct }: { dec: any; canAct: boolea
             {c.to_eta_s != null && `requester ETA ${fmtMin(c.to_eta_s)}`}{c.alternative_eta_s != null && ` (best alternative ${fmtMin(c.alternative_eta_s)})`}
             {c.impact_s != null && ` · impact on other incident ${c.impact_s >= 0 ? "+" : ""}${fmtMin(c.impact_s)}`}
             {c.resolved_by && ` · resolved by ${c.resolved_by}`}</div>
+          {c.details?.candidates?.length > 0 && (
+            <table className="table small" data-testid="conflict-candidates"><thead><tr><th>Unit</th><th>Committed to</th><th>Status</th><th>ETA to this call</th><th>Delay caused</th><th>Reason</th></tr></thead>
+              <tbody>{c.details.candidates.map((x: any) => (
+                <tr key={x.ambulance_id} className={x.selected ? "selected" : ""}><td>{x.ambulance_id}{x.selected ? " ✓" : ""}</td>
+                  <td>{x.donor} ({x.donor_severity})</td><td>{x.status.replace(/_/g, " ")}</td>
+                  <td>{x.to_eta_s != null ? fmtMin(x.to_eta_s) : "—"}</td><td>{x.donor_delay_s != null ? fmtMin(x.donor_delay_s) : "—"}</td>
+                  <td className="muted">{x.reason}</td></tr>))}</tbody></table>)}
           {c.decision === "ESCALATED" && canAct && <div className="btn-row">
             <button className="primary" onClick={() => onAct(c.id, "approve")}>Approve reallocation</button>
             <button onClick={() => onAct(c.id, "reject")}>Reject</button></div>}

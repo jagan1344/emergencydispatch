@@ -13,6 +13,7 @@ export interface Hospital {
   id: string; name: string; latitude: number; longitude: number; emergency_capacity: number;
   icu_available: number; trauma_available: boolean; cardiac_available: boolean; stroke_available: boolean;
   current_load: number; status: string; load_pct: number; data_source?: string; phone?: string | null;
+  capability_status?: Record<string, string>; capacity_source?: string; load_source?: string;
 }
 
 export interface Candidate {
@@ -34,6 +35,9 @@ export interface Route {
   reroute_reason: string | null; old_eta_s: number | null; time_saved_s: number | null;
   alternatives: { engine: string; distance_m: number; adjusted_duration_s: number | null; selected: boolean; feasible: boolean }[] | null;
   geometry: [number, number][]; progress_m?: number; eta_remaining_s?: number;
+  status?: "ACTIVE" | "UNAVAILABLE" | "COMPLETED" | "SUPERSEDED" | "INACTIVE"; unavailable_reason?: string | null;
+  checkpoint?: { progress_m: number; segment: number | null; position: [number, number] | null; eta_s: number | null; saved_at: string } | null;
+  remaining_m?: number | null; reroute_count?: number | null;
 }
 
 export interface Incident {

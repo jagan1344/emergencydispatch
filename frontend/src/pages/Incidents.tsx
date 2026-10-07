@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Panel, SeverityBadge, StatusBadge } from "../components/ui";
 import { api } from "../services/api";
-import { fmtMin, fmtTime } from "../services/format";
+import { fmtMin, fmtTime, sourceLabel } from "../services/format";
 import { Incident } from "../types";
 import { useLive } from "../hooks/useLive";
 
@@ -31,7 +31,7 @@ export default function Incidents() {
               <td><Link to={`/emergencies/${i.id}`}>{i.reference}</Link></td><td>{fmtTime(i.created_at)}</td><td>{i.emergency_type}</td>
               <td>{i.predicted_severity || i.ml_status}</td><td>{i.rule_score?.toFixed(0)}</td><td><SeverityBadge s={i.severity} /></td>
               <td>{i.priority?.toFixed(1) ?? "—"}</td><td><StatusBadge s={i.status} /></td><td>{i.assigned_ambulance || "—"}</td>
-              <td>{i.destination_hospital || "—"}</td><td>{fmtMin(i.response_time_s)}</td><td className="muted small">{i.source}</td>
+              <td>{i.destination_hospital || "—"}</td><td>{fmtMin(i.response_time_s)}</td><td className="muted small">{sourceLabel(i.source)}</td>
             </tr>))}</tbody>
         </table>
       </Panel>

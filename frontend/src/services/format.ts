@@ -29,6 +29,8 @@ export function describeEvent(e: { type: string; data: any }): string | null {
     case "ROUTE_RECALCULATED": return `ROUTE RECALCULATED ${d.ambulance_id}: ${d.reason}` +
       (d.time_saved_s != null ? ` — saved ${fmtMin(d.time_saved_s)}` : "");
     case "ROUTE_CHECK": return `Route check ${d.ambulance_id}: ${d.decision} (${d.reason})`;
+    case "ROUTE_UNAVAILABLE": return `ROUTE UNAVAILABLE ${d.ambulance_id}: closed ${(d.blocked_roads || []).join(", ")} - dispatcher review required`;
+    case "ROUTE_RESUMED": return `Route resumed ${d.ambulance_id} after simulator restart: ${d.decision} (offset ${d.offset_m} m)`;
     case "TRAFFIC_CHANGED": return `Traffic ${d.road_id} ${d.name ? `(${d.name}) ` : ""}${d.old_level} → ${d.congestion_level}${d.event_type === "ACCIDENT" ? " [ACCIDENT]" : ""}`;
     case "HOSPITAL_SELECTED": return `${d.reference}: hospital ${d.hospital_name} selected`;
     case "HOSPITAL_WARNING": return `⚠ ${d.reference}: ${d.warning}`;
@@ -44,3 +46,7 @@ export function describeEvent(e: { type: string; data: any }): string | null {
     default: return null;
   }
 }
+
+// data provenance label: synthetic seed records must never look like real historical EMS incidents
+export const sourceLabel = (src: string | null | undefined) =>
+  src === "HISTORICAL_SEED" ? "HISTORICAL_SEED / SYNTHETIC" : src === "SIMULATION" || src === "SCENARIO" ? `${src} (simulated)` : (src ?? "—");

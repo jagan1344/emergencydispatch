@@ -33,4 +33,8 @@ test("evaluation page is read-only for viewers", async ({ page }) => {
   await expect(page.getByTestId("evaluation-page")).toBeVisible();
   await expect(page.getByTestId("run-experiment")).toHaveCount(0);
   await expect(page.getByTestId("experiment-runs")).toBeVisible();
+  await expect(page.getByTestId("calibration-report")).toContainText("Brier score");
+  await expect(page.getByTestId("calibration-report")).toContainText("ECE");
+  await expect(page.getByTestId("traffic-comparison")).toContainText("Persistence");
+  await expect(page.getByTestId("traffic-comparison")).toContainText("Rule fallback");
 });
