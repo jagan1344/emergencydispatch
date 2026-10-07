@@ -17,7 +17,7 @@ PostgreSQL/PostGIS.
 4. [Features](#4-features) · 5. [Architecture](#5-architecture) · 6. [Technology stack](#6-technology-stack) ·
 7. [Database](#7-database-architecture) · 8. [ML](#8-ml-architecture) · 9. [Routing](#9-routing-architecture) ·
 10. [Traffic simulation](#10-traffic-simulation) · 11. [Dispatch algorithm](#11-dispatch-algorithm) ·
-12. [Formulas](#12-formulas) · 12a. [Decision intelligence](#12a-decision-intelligence) · 13. [Installation (Windows)](#13-installation-windows-powershell) ·
+12. [Formulas](#12-formulas) · 12a. [Decision intelligence](#12a-decision-intelligence) · 12b. [Research evaluation](#12b-research-evaluation-progressive-baselines-and-ablation) · 12c. [Reliability & provenance](#12c-reliability-calibration-and-data-provenance) · 13. [Installation (Windows)](#13-installation-windows-powershell) ·
 14. [Running](#14-running-the-project) · 15. [Docker](#15-option-b-docker-compose) · 16. [Demo](#16-demo-scenario) ·
 17. [API](#17-api) · 18. [Testing](#18-testing) · 19. [Measured results](#19-measured-results) ·
 20. [Screenshots](#20-screenshots) · 21. [Limitations](#21-limitations) · 22. [Future work](#22-future-work)
@@ -319,6 +319,151 @@ load and wait columns.
 * A CRITICAL-vs-LOW conflict was **ESCALATED** because the donor delay of 10.1 min exceeded 5 min. The
   dispatcher approved it, the units were swapped, and the cost was +4.3 min for the LOW call.
 
+## 12b. Research evaluation (progressive baselines and ablation)
+The repository includes a research evaluation layer. It replays the **same seeded scenarios** under five
+progressively stronger decision strategies (A BASELINE → B SEVERITY → C TRAFFIC → D HOSPITAL → E FULL) and
+under six FULL-minus-one ablations. It reports paired statistics: Shapiro–Wilk, then a paired t-test or
+Wilcoxon signed-rank, 95 % CI, and Holm-adjusted p-values.
+
+Every decision is taken by the production code (triage, DispatchScore, OR-Tools, routing engine on a clone
+of the real road graph plus OSRM, traffic and hospital prediction, the reallocation policy, the re-route
+rules, explanations). Experiments write only the new `experiment_*` tables (migration `0005_evaluation.sql`)
+and `evaluation/results/<run>/`.
+
+```powershell
+cd backend
+python -m app.migrate
+python -m app.evaluation.run_experiment --all --scenarios 100 --seed 42        # systems A-E
+python -m app.evaluation.run_experiment --ablation --scenarios 100 --seed 42   # FULL and FULL-minus-one
+```
+
+Results appear as CSV/JSON, `REPORT.md` and SVG plots, and on the **Evaluation** page (`/evaluation`).
+Methodology, metric definitions, statistical tests, assumptions and limitations:
+**[docs/RESEARCH_EVALUATION.md](docs/RESEARCH_EVALUATION.md)**.
+
+> **Data used for these results: Monaco, not Bengaluru.** The 100-scenario experiment and the live backend-restart
+> validation were run in the development container on the bundled **Monaco** OpenStreetMap extract (with an OSRM
+> instance built from that extract), with **synthetic** severity training data, **simulated** calls, traffic and
+> hospital load. No Bengaluru map, OSRM build or Bengaluru data was used, so none of these numbers describe
+> Bengaluru. A Bengaluru installation must re-run the experiment (`python -m app.evaluation.run_experiment --all
+> --ablation --scenarios 100 --seed 42`). Provenance of every stored run: [evaluation/README.md](evaluation/README.md).
+
+**Results: Monaco OSM + OSRM, seed 42.** Design: **100 scenarios × 11 strategy configurations = 1 100 simulation
+runs** (0 failed). The 11 configurations are the 5 progressive systems A–E plus 6 FULL-minus-one ablations; FULL is
+run once and serves both families. The 100 scenarios contain 562 emergency calls, identical in every configuration,
+giving 562 × 11 = 6 182 simulated call outcomes. **The unit of analysis is the scenario.** Each table value is a
+mean over the 100 scenario-level values of one configuration (fewer where a metric does not exist in a scenario,
+e.g. 64 scenarios contain a CRITICAL patient). Paired tests compare the same scenario under two configurations (at
+most 100 pairs); runs are never pooled across configurations. The report's "Design and denominators" section
+lists every *n*.
+(`evaluation/results/upgrade-s42-n100/`, re-run after the reliability upgrade; calibrated severity model; LEARNED traffic model; ESCALATED reallocations
+rejected by the simulated dispatcher). These are simulated decision-support results, not clinical or real-world
+performance. All numbers below are means over scenarios; "sig." means a Holm-adjusted paired Wilcoxon p < 0.05.
+
+| Metric | A BASELINE | B SEVERITY | C TRAFFIC | D HOSPITAL | E FULL |
+|---|---:|---:|---:|---:|---:|
+| Response time (s) | 471.8 | 501.9 | 488.3 | 501.7 | 487.5 |
+| Critical-case response (s) | 503.7 | 499.4 | 496.8 | 508.3 | 480.7 |
+| Critical delay beyond 8 min (s) | 182.9 | 155.3 | 146.0 | 156.2 | 135.0 |
+| Unsuitable first unit vs simulated need (%) | 25.0 | 13.9 | 13.4 | 13.3 | 11.9 |
+| Hospital capability gap (%) | 38.2 | 34.2 | 34.3 | 34.3 | 34.2 |
+| Hospital wait, simulated (s) | 1 944 | 1 980 | 1 987 | 1 534 | 1 529 |
+| Creation → ED treatment, simulated (s) | 2 905 | 2 973 | 2 958 | 2 548 | 2 527 |
+| \|ETA error\| (s) | 78.0 | 84.9 | 45.8 | 46.0 | 37.4 |
+| Re-route ETA savings per scenario (s) | 0 | 0 | 0 | 0 | 11.9 |
+| Review rate (%) / manual interventions per scenario | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 2.8 / 0.41 |
+| Under-triage vs simulated label (%) | n/a | 12.7 | 12.7 | 12.7 | 11.5 |
+| Priority violations per scenario (vs simulated label) | 0.02 | 0.02 | 0.02 | 0.02 | 0.06 |
+| Route failures (no drivable route) per scenario | 0.43 | 0.53 | 0.51 | 0.50 | 0.50 |
+| Units stopped at a closure per scenario | 0.28 | 0.32 | 0.27 | 0.27 | 0.20 |
+| Unsafe reallocations per scenario (vs simulated label) | 0 | 0 | 0 | 0 | 0.02 |
+
+What the paired tests support (and what they do not):
+* **Severity awareness has a measurable cost and a measurable benefit.** Sending capable units raises mean response
+  time (+30 s vs BASELINE, sig., rank-biserial r = 0.51, large), but it halves unsuitable first units (25.0 % → 13.9 %, sig., r = −0.94) and reduces
+  hospital capability gaps (−4.0 points, sig.). The nearest-unit baseline is fast because it often sends the wrong unit.
+* **Traffic awareness mainly improves predictability.** |ETA error| falls by 39.1 s (sig., r = −0.91). Response time is not
+  significantly different from SEVERITY.
+* **Hospital intelligence gives the largest effect.** Simulated ED wait falls by 454 s (r = −0.87) and creation-to-treatment by
+  411 s (r = −0.74), both sig. vs TRAFFIC. Removing it from FULL raises the wait by 470 s (sig., r = 0.92), at the price of 11.0 s longer
+  response (sig., r = −0.49 for FULL−HOSPITAL, i.e. FULL is slower), because the chosen hospital is sometimes farther.
+* **Dynamic re-routing helps.** Removing it from FULL adds 12.8 s response time (sig., r = 0.88) and 0.25 reactive detours per
+  scenario (sig.).
+* **Confidence-aware review** holds 2.8 % of calls and lowers potentially inappropriate automatic dispatch
+  (sig.). Its effect on under-triage (12.7 % → 11.5 %) and on critical delay rests on too few non-zero pairs for a test.
+* **Reallocation** found 42 conflicts in 30 of 100 scenarios: 11 automatic reallocations and 31 escalations (rejected
+  by the simulated dispatcher). Removing it changes no time metric significantly.
+* **Explainability** changes no decision (identical results in every scenario), as designed.
+* **Traffic prediction did not help in this experiment.** The LEARNED model was trained on the live traffic
+  simulator's history. Scored against the simulated state H minutes later it reaches 76.5 % accuracy (FULL), versus
+  98.7 % for persistence and 32.6 % for the rule fallback, and removing it (FULL−TRAFFIC) does not change response time significantly. The
+  scenario traffic changes far less often than the live simulator, so the learned dynamics do not transfer.
+  This is reported, not tuned away; the live system only uses the model while it beats persistence on its own
+  history (in this run 0.955 vs 0.950 hold-out accuracy; rule fallback 0.528).
+* **Critical-case metrics** have 0.97 CRITICAL patients per scenario (64 of 100 scenarios have one), so most critical comparisons have
+  too few non-zero pairs for a test. The trend favours FULL (critical delay 134.9 s vs 182.9 s), but it is not
+  established.
+* **Severity model on the scenario patients** (simulated label): accuracy 0.965 on clear reports, 0.597 on the
+  35 % uncertain reports. Calibration ECE is 0.007 (clear) and 0.26 (uncertain): it does not transfer to noisy
+  reports.
+* **New operational metrics are rare events.** Priority violations (FULL 0.06 vs BASELINE 0.02 per scenario) rest
+  on 3 non-zero paired differences, so no test was run. The difference is reported, not established, and its
+  cause was not analysed. Route failures do not differ (Wilcoxon p = 0.94, r = 0.02).
+  The 2 unsafe reallocations (FULL) are cases where the system's triage ranked the donor lower than the requester
+  while the simulated label did not.
+* **Hospital forecast vs simulated load** (SIMULATION, FULL): load MAE 0.56 patients vs persistence 0.59, but wait
+  MAE 276 s vs persistence 264 s. The queueing forecast is not better than persistence for waits.
+* **Effect sizes and medians** for every test are in `paired_tests.csv` and on the Evaluation page. Out of 91 tested
+  comparisons, 49 vs BASELINE and 32 in the ablation family remain significant after Holm.
+* **Note on tests.** Wilcoxon tests the location of the paired differences while the CI is for the mean, so a
+  significant Wilcoxon result can sit with a mean CI that crosses 0 (e.g. SEVERITY's time-to-treatment). Such
+  results are not claimed as improvements.
+
+
+## 12c. Reliability, calibration and data provenance
+
+| Improvement | What changed | Where |
+|---|---|---|
+| **Restart recovery** | The telemetry flush now persists each live route's progress and last ETA (`routes.progress_m / last_eta_s / progress_updated_at`, `ambulance_locations.progress_m`, migration `0006_route_progress.sql`). After a backend restart the active routes are restored *with* that progress. After a **simulator** restart, the route commands the broker replays are held, not driven. The simulator announces itself (`simulator/hello`), and the backend re-sends each live route with the last persisted GPS fix and progress (`ROUTE_RESUMED`). The unit continues where it is: same route id, no duplicate route, no jump to the route start. If GPS and stored progress disagree by more than 75 m, the route is re-planned from the GPS fix instead of guessing. | `services/routes_service.resume_simulated_routes`, `simulator/ambulance_simulator.py` |
+| **No walking-speed "ambulance route"** | When every road route crosses a closed road, the router raises `NoDrivableRouteError` naming the closures, instead of driving through them at 5 km/h. Dispatch then reports **ROUTE UNAVAILABLE** with dispatcher review (the incident note names the closed roads). A moving ambulance gets one `ROUTE_UNAVAILABLE` event (ambulance, position, closed roads, `alternative_exists=false`, `dispatcher_required=true`) and a red banner, and keeps its route until a detour exists or the closure clears. The legacy behaviour is opt-in: `CLOSURE_ACCESS_FALLBACK=true`. | `routing/engine.py`, `services/dispatch_service.py`, `services/routes_service.py` |
+| **Calibrated severity probabilities** | The RandomForest's class probability is a *model confidence*, not clinical certainty. Training now carves a calibration split out of the training data. Isotonic regression is used with ≥ 1 000 calibration rows, Platt (sigmoid) below that, and no calibration below 200 rows or 20 per class. Raw and calibrated models are compared on the untouched test split, and the calibrated model is deployed only if it lowers **both** Brier and ECE without losing more than 1 point of accuracy. On the synthetic dataset, calibration was applied (isotonic): Brier 0.1013 → 0.0827, ECE 0.0756 → 0.0126, accuracy 0.9558 → 0.9542, macro-F1 0.9581 → 0.9566. The raw forest was under-confident. Reliability curves are in `ml/artifacts/metrics.json`. Thresholds were **not** changed (0.75 / 0.50). Because calibrated probabilities are higher, fewer clean cases fall below 0.75 (test split: 10.7% → 1.1%). | `ml/calibration.py`, `ml/train.py`, `ml/predict.py` |
+| **Confidence trace** | The decision trace / AI panel shows the predicted severity, the raw and the calibrated probability, the calibration method, the threshold that applied, the decision mode and the reason. It is labelled "model confidence, not clinical certainty". Decision modes map onto the requested vocabulary: AUTO = `AUTO_DISPATCH`, REVIEW = `DISPATCH_WITH_REVIEW`, CLARIFY = `HUMAN_REVIEW` (the dispatcher confirms or corrects severity before dispatch), ABSTAIN = model unavailable (the ML abstains; the rule score decides, with review). No new modes were invented. | `services/decision_service.py`, `DecisionPanels.tsx` |
+| **Traffic source labels** | The traffic API and page state `traffic_source = SIMULATION`; whether the prediction is LEARNED or FALLBACK and why; training samples; the hold-out comparison against persistence; and what the confidence number means (the uncalibrated RF class probability, or the empirical persistence rate for the fallback). | `services/traffic_prediction.py`, `Traffic.tsx` |
+| **Traffic model training storm (bug fix)** | Concurrent traffic events each retrained the model at start-up. The log showed 25 trainings on 30 000 samples, which saturated the CPU and stalled the API. Training is now serialised with a double-checked lock (1 training). | `services/traffic_prediction.py` |
+| **Hospital data quality** | A capability status is derived from the data source: `VERIFIED_YES/NO` (CSV), `OSM_TAG_YES`, `UNKNOWN` (absent OSM tag, **never** "no"), `SIMULATED_YES/NO` (demo seed). Capacity is labelled verified / estimated / simulated, and load as SIMULATION. In ranking, a hospital whose required capability is only *unknown* ranks after confirmed-capable hospitals but before confirmed-lacking ones; with complete data the order is unchanged. Warnings distinguish "lacks" from "unknown". | `services/mission_service.py`, `dispatch/scoring.py` |
+| **Hospital why / why not** | Every alternative hospital gets factual reasons: lacks / unknown capability, at capacity, slower, longer estimated wait, higher predicted load, or higher overall score. Hospital forecasts carry `source = SIMULATION`. | `dispatch/scoring.hospital_why_not`, `dispatch/explain.py` |
+| **Reallocation candidates** | Every committed unit is assessed and the result stored in the conflict (`details.candidates`): unavailable (with reason), unreachable, insufficient gain, feasible / not feasible (with estimated donor delay). Among the 3 fastest options, the fastest *feasible* one is reallocated automatically. If none is feasible, the fastest is escalated, as before. It is still one donor per conflict; multi-unit chain reallocation is outside the current optimisation scope. The evaluation simulator uses the same ranking function. | `services/reallocation.rank_donor_options` |
+| **Provenance labels** | Synthetic seed incidents show as `HISTORICAL_SEED / SYNTHETIC`, and simulation/scenario incidents as simulated. | `format.ts`, Incidents / details pages |
+| **Evaluation** | The research evaluation (§12b) now also reports the severity model on the scenario patients (accuracy, macro P/R/F1, Brier, ECE, confidence distribution, split by clear / uncertain reports) and **traffic-prediction quality**: every prediction is scored against the simulated state H minutes later, next to the persistence baseline. | `evaluation/runner.py`, `evaluation/simulator.py` |
+| **Route checkpoint + backend restart recovery** | Migration `0007_route_checkpoint.sql` adds `routes.checkpoint_lat/lon/segment`. The telemetry flush saves a checkpoint (progress, segment, position, ETA, time) at most every `ROUTE_CHECKPOINT_INTERVAL_S` (default 2 s) per active route and logs `ROUTE_CHECKPOINT_SAVED`. When the backend starts (after MQTT connects), every active route is reloaded from the database. If the latest GPS fix is within `ROUTE_CHECKPOINT_REPLAN_THRESHOLD_M` (default 75 m) of the checkpoint, the route continues from the checkpoint and the ETA is recomputed from the remaining route (`ROUTE_RECOVERED`). Otherwise the route is replanned from the GPS position (`ROUTE_RECOVERY_REPLAN`). Both events store the checkpoint, the current position, the distance, the threshold, the old/new ETA and the reason. In a live run in the development container (Monaco OSM extract, simulated ambulance, not Bengaluru), a backend killed mid-route came back and resumed the route at the 363.1 m checkpoint (distance 0 m, same route id). The route then completed normally. | `services/telemetry_service.py`, `services/routes_service.recover_active_routes`, `main.py` |
+| **Structured ROUTE UNAVAILABLE** | `POST /api/routes/calculate` answers **409** with `{status: "ROUTE_UNAVAILABLE", reason, blocked_roads, origin, destination, dispatcher_action_required: true}` when no drivable route exists. For a moving ambulance, the route row stores `unavailable_reason / unavailable_at`, and `ROUTE_AVAILABLE` is emitted when the closure clears. The incident page shows a red "ROUTE UNAVAILABLE - dispatcher action required" banner naming the incident, the ambulance and the closed roads. Tests cover all five cases: a normal route, one closure with an alternate road, every access closed, fallback disabled (default) and fallback explicitly enabled. | `routing/engine.py`, `api/routes.py`, `EmergencyDetails.tsx` |
+| **Calibration outputs** | Training writes `evaluation/severity_calibration.json`. It records the train 60 % / calibration 20 % / untouched test 20 % split, the method, the version, the raw and calibrated Brier and ECE, accuracy / precision / recall / F1, the sample counts and the ECE bins, and it logs `CALIBRATION_EVALUATED`. Each prediction keeps both the raw and the calibrated vectors, plus `calibration_version`, in `CONFIDENCE_ASSESSED`. With `CALIBRATION_ENABLED=false`, decisions use the raw probabilities. Current file (synthetic data, 1 200 test rows): Brier 0.1013 → 0.0827, ECE 0.0756 → 0.0126. | `ml/train.py`, `ml/predict.py` |
+| **Traffic: ML vs fallback vs persistence** | `python -m app.evaluation.traffic_eval` scores the three predictors on the time-ordered hold-out of the stored (SIMULATION) traffic history and writes `evaluation/traffic_prediction.json` (logs `TRAFFIC_PREDICTION_EVALUATED`). Measured: ML accuracy 0.9532 / MAE 0.0841 levels, rule fallback 0.4793 / 0.5883, persistence 0.9504 / 0.1060 (30 000 samples, 7 500 hold-out). The learned model only marginally beats persistence, and the rule fallback is much worse than persistence. | `evaluation/traffic_eval.py`, `ml/traffic_model.py` |
+| **Decision summary + rejection codes** | `GET /api/emergencies/{id}/decision` adds a `summary` covering what was considered (severity model, ambulance and hospital candidates, units with no drivable route, whether reallocation and rerouting were considered), why, the constraints and the route status. Each rejected candidate carries structured codes. Ambulance codes are `UNSUITABLE_CAPABILITY`, `TOO_SLOW`, `HEAVY_TRAFFIC`, `LOWER_CAPABILITY_MATCH`, `HIGHER_WORKLOAD`, `LOW_FUEL`, `LONGER_DISTANCE`, `HIGHER_SCORE`, `ASSIGNED_TO_HIGHER_PRIORITY`, `NO_DRIVABLE_ROUTE`. Hospital codes are `LACKS_CAPABILITY`, `CAPABILITY_UNKNOWN`, `HOSPITAL_FULL`, `TOO_SLOW`, `HOSPITAL_CONGESTION`, `HIGHER_SCORE`. Reallocation candidate codes are `DONOR_EQUAL_OR_HIGHER_SEVERITY`, `LOWER_PRIORITY_MARGIN` (= lower priority not low enough), `UNSUITABLE_CAPABILITY`, `NO_DRIVABLE_ROUTE`, `INSUFFICIENT_GAIN`, `NO_REPLACEMENT`, `DONOR_DELAY_TOO_HIGH`, `FEASIBLE` (logged as `RESOURCE_REALLOCATION_EVALUATED`). | `services/decision_service.py`, `dispatch/explain.py`, `dispatch/scoring.py`, `services/reallocation.py` |
+
+**What is real, simulated, predicted or estimated**
+
+| Data | Status |
+|---|---|
+| Road network, hospital names/locations | REAL PUBLIC DATA (OpenStreetMap) when the OSM extract is installed; synthetic grid otherwise |
+| Hospital capabilities | VERIFIED only after the CSV import; OSM tags are partial evidence; missing tags are UNKNOWN |
+| Hospital capacity / load | capacity estimated (OSM beds or default) unless verified; load is SIMULATION (dispatch admissions, simulated discharges) |
+| Hospital load / wait prediction | MODEL OUTPUT, an ESTIMATE from a queueing approximation on simulated load |
+| Traffic states | SIMULATION (traffic simulator + dispatcher events); no live external feed |
+| Traffic prediction | MODEL OUTPUT, LEARNED only if it beats persistence on the stored (simulated) history, else FALLBACK |
+| Severity | MODEL OUTPUT on SYNTHETIC training data (demo) or on a REAL PUBLIC triage dataset (KTAS, Korea, ED triage, not Indian pre-hospital care). Not a diagnosis, not clinically validated |
+| Incidents | live dispatcher input, SIMULATION/SCENARIO (simulated), HISTORICAL_SEED (SYNTHETIC) |
+| Ambulance GPS | SIMULATION (MQTT simulator), or the crew phone's real GPS (Crew GPS page) |
+
+**Not implemented (with reason)**
+
+| Feature | Status | Reason | What would be required | Current safe behaviour |
+|---|---|---|---|---|
+| Multi-unit / chain reallocation | NOT IMPLEMENTED | needs a joint optimisation over all active missions, a major change to the dispatch architecture | a fleet-wide assignment model (e.g. CP-SAT over active and waiting incidents) with impact constraints | one donor per conflict, ranked candidates, escalation when not feasible |
+| Hospital-load prediction vs persistence on real data | NOT MEASURABLE WITH CURRENT DATA | no real occupancy history; in the *simulation* the forecast is now scored against the simulated load (load and wait MAE vs persistence, labelled SIMULATION, §12b) | historical snapshots of incoming ambulances plus real occupancy data | forecast labelled ESTIMATE / SIMULATION |
+| Validated uncertainty for traffic predictions | NOT IMPLEMENTED | the RF class probability is uncalibrated, and the history is simulated | a calibration study on real traffic data | the number is shown with its exact meaning, never as a validated uncertainty |
+| Real traffic / real hospital occupancy | NOT IMPLEMENTED | no free real-time source for Bengaluru | a licensed traffic API / hospital information-system integration | clearly labelled simulation |
+
 ## 13. Installation (Windows PowerShell)
 Get the code (into `D:\emergencydispatch`):
 ```powershell
@@ -543,13 +688,16 @@ Interactive docs: `/docs`. All endpoints except login/health require `Authorizat
 | POST | `/api/dispatch/conflicts/{id}/approve` · `/reject` | DISPATCHER | resolve an escalated reallocation |
 | GET/POST | `/api/traffic/predictions` `?changed_only=` · `/predictions/refresh` `?retrain=` | any / DISPATCHER | predicted traffic + model status · recompute |
 | GET | `/api/hospitals/predictions` · `/api/hospitals/{id}/prediction` `?horizon_min=` | any | predicted hospital load and wait (estimated) |
+| GET | `/api/evaluation/runs` · `/runs/{id}` · `/runs/{id}/results?strategy=` · `/strategies` · `/job` | any | stored experiments, comparison, paired statistics, per-scenario metrics |
+| GET | `/api/evaluation/model-quality` | any | severity calibration (Brier/ECE raw vs calibrated) and traffic ML vs fallback vs persistence, read from `evaluation/*.json` (NOT RUN if absent) |
+| POST | `/api/evaluation/runs` `{progressive, ablation, strategies, scenarios<=200, seed (default EVALUATION_SEED)}` | ADMIN | start an experiment in the background (use the CLI for large runs) |
 | POST | `/api/emergencies/{id}/reroute` · `/cancel` | DISPATCHER | re-evaluate route · cancel |
 | GET | `/api/ambulances` `?status=&near_lat=&near_lon=&radius_m=` · `/{id}` | any | fleet (PostGIS `ST_DWithin` filter), track |
 | POST/PATCH | `/api/ambulances` · `/{id}` | ADMIN | manage units |
 | POST | `/api/ambulances/{id}/gps` · `/arrived` · `/gps/release` | DISPATCHER | real device GPS fix (map-matched) · crew confirms arrival · hand unit back to simulator |
 | GET/POST/PATCH | `/api/hospitals` | any / ADMIN | hospitals |
-| GET | `/api/routes` `?active=` · `/api/routes/{id}` | any | routes with segments |
-| POST | `/api/routes/calculate` | any | traffic-aware route between two points |
+| GET | `/api/routes` `?active=` · `/api/routes/{id}` | any | routes with segments, status (ACTIVE / UNAVAILABLE / COMPLETED / SUPERSEDED), last checkpoint, remaining distance, reroute count |
+| POST | `/api/routes/calculate` | any | traffic-aware route between two points; 409 `ROUTE_UNAVAILABLE` (structured) when every route crosses a closure |
 | GET | `/api/traffic/roads` · `/roads/nearest` · `/events` · `/network` | any | road states/geometry, events, graph stats |
 | POST | `/api/traffic/events` | DISPATCHER | ACCIDENT · BLOCK · UNBLOCK · CONGESTION(level) · CLEAR by road or point |
 | POST | `/api/traffic/simulate` · `/api/traffic/reset` | DISPATCHER | random traffic step(s) · clear all |
@@ -564,7 +712,7 @@ MQTT topics: `ambulance/{id}/location|status|telemetry|command` (commands `FOLLO
 
 ## 18. Testing
 ```powershell
-# backend: 69 tests (wipes and recreates TEST_DATABASE_URL, default database ems_test)
+# backend: 113 tests (wipes and recreates TEST_DATABASE_URL, default database ems_test)
 cd backend; python -m pytest
 
 # frontend E2E (backend on :8000 and `npm run dev` running; simulator optional)
@@ -597,6 +745,25 @@ cd frontend; npx playwright install chromium; npx playwright test
 * `test_e2e_decision.py`: deterministic end-to-end run on the synthetic network with a recording MQTT bridge.
   It covers confidence → dispatch → explanation → predicted traffic → road block → `ROUTE_UPDATED` →
   cooldown holds → hospital forecast → completion, and checks the decision-trace order. No internet or OSRM needed.
+* `test_restart_recovery.py`: the simulator holds replayed routes and resumes at the persisted position (no
+  teleport, no duplicate route); progress/ETA are persisted and restored after a backend restart; re-planning from GPS
+  when it disagrees with the stored progress; ROUTE_UNAVAILABLE through the API (one alert, no walking route, dispatcher
+  review note).
+* `test_calibration.py`: Brier / ECE / reliability definitions, calibration not forced on small data, raw vs calibrated
+  deployment, old model files still load, and the confidence trace states the probability type and threshold.
+* `test_data_labels.py`: tri-state hospital capabilities, unknown vs lacking ranking, why-not reasons, SIMULATION labels.
+* `test_traffic_training_lock.py`: concurrent callers train the traffic model once.
+* `test_routing.py::test_no_drivable_route_is_reported_not_walked`, `test_reallocation.py::test_donor_ranking_prefers_safest_feasible_option`.
+* `test_evaluation.py`:
+  * strategy definitions and ablations;
+  * BASELINE picks the nearest unit, SEVERITY the capable one, TRAFFIC avoids a congested unit, HOSPITAL
+    avoids a congested hospital, FULL enables every capability;
+  * explanations never change decisions, and the live graph is untouched;
+  * reproducibility: same seed gives the same scenarios and results;
+  * scenario coverage, metric definitions, paired statistics and Holm correction;
+  * runner persistence with failure isolation, and operational tables unchanged;
+  * every strategy runs on identical calls; API and RBAC.
+* `frontend/e2e/evaluation.spec.ts`: an ADMIN runs an experiment from the Evaluation page; viewers are read-only.
 * `frontend/e2e/decision.spec.ts`: decision panels (why / why-not, trace) and the predicted-traffic table.
   `e2e/global-setup.ts` resets operations before a run.
 * `frontend/e2e/crew.spec.ts`: emulated phone geolocation on the Crew GPS page drives an ambulance to ARRIVED.
@@ -604,7 +771,7 @@ cd frontend; npx playwright install chromium; npx playwright test
   dispatch explanation, see the ambulance marker on the map, traffic event → re-route banner and route
   table, analytics, viewer is read-only.
 
-Last run in the development environment: **backend 69 passed** (40 existing + 29 new), **Playwright 6 passed** (3 consecutive runs).
+Last run in the development environment: **backend 100 passed** (69 from before the evaluation work + 14 evaluation + 17 reliability/calibration/data-quality), **Playwright 8 passed** (3 consecutive runs).
 
 ## 19. Measured results
 Measured in the development container (Linux, 4 vCPU, Python 3.11) on the Monaco OSM network
@@ -653,18 +820,29 @@ because the sandbox could not reach the OSM tile server; on a normal machine the
   load is simulated (admissions from dispatches, simulated discharges).
 * **Incidents** are entered by the dispatcher or generated by the simulation. The 50 "historical" seed
   incidents are synthetic (source `HISTORICAL_SEED`).
-* If no open route exists, the router passes closed roads at walking pace (5 km/h) and warns the
-  dispatcher, rather than declaring the patient unreachable.
+* If no open (drivable) route exists, the system reports ROUTE UNAVAILABLE and requires a dispatcher decision.
+  The legacy walking-pace access through a closure is only used with `CLOSURE_ACCESS_FALLBACK=true`.
 * The weighted scores are engineering choices; they do not guarantee the fastest possible response.
 * Single backend process; dispatch serialisation uses an in-process lock plus row locks, which suits one
   instance (horizontal scaling would need a distributed lock/queue).
 * **Predictions are estimates.** Hospital load and wait come from a queueing approximation on simulated
   admissions and discharges. They are labelled as estimates and are not real ED data. The traffic model learns
   from simulated traffic only, so it is used only while it beats persistence.
-* Confidence is the RandomForest's class probability. It is not calibrated against clinical outcomes.
+* Confidence is the RandomForest's class probability, calibrated (isotonic) on held-out synthetic data when that
+  measurably improves Brier/ECE. It is calibrated against the dataset's labels, **not** against clinical outcomes.
 * Reallocation considers one donor unit per conflict. Chains of reassignments are escalated to the dispatcher
   rather than optimised.
-* The ambulance simulator restarts a route from its start if the simulator itself is restarted mid-route.
+* Simulator restart recovery resumes from the last *persisted* position (telemetry is flushed about every second),
+  so a restart can lose up to about one second of movement. An old backend that does not answer `simulator/hello`
+  leads to the previous behaviour (route start) after `SIM_RESUME_WAIT_S`, and this is logged as RESUME_UNAVAILABLE.
+* Backend restart recovery resumes from the last route **checkpoint** (saved at most every
+  `ROUTE_CHECKPOINT_INTERVAL_S`). Movement during the backend outage is not recorded. If the ambulance moved more
+  than `ROUTE_CHECKPOINT_REPLAN_THRESHOLD_M` away, the route is replanned rather than guessed.
+* The traffic predictor learns from **simulated** traffic. On the stored history it beats persistence only
+  marginally (0.953 vs 0.950 accuracy), and the rule fallback is far worse than persistence (0.479). Inside the
+  research simulation, persistence was the stronger predictor (§12b). None of this measures real Bengaluru traffic.
+* The research evaluation is a simulation. Effect sizes and p-values describe differences between strategies on
+  simulated scenarios, not real-world or clinical outcomes.
 
 ## 22. Future work
 * Real traffic feeds (open city data / probe vehicles) and travel-time prediction (e.g. gradient boosting

@@ -114,6 +114,22 @@ test, and its cost is measured by the "unsuitable first unit" metric.
   * routing source (OSM graph and OSRM status);
   * city, road-network fingerprint, all thresholds, and timestamps.
 
+## Design and denominators
+
+* **Unit of analysis: the scenario.** A run of `--scenarios S` with `C` strategy configurations performs
+  **S × C simulation runs**: every scenario is replayed once under every configuration. For example, `--all --ablation
+  --scenarios 100` gives 100 × 11 = **1 100 runs**: 5 progressive systems plus 6 ablations, with FULL run once and
+  shared by both families.
+* **Calls.** The scenarios' calls are identical in every configuration, giving calls × C simulated call outcomes
+  (`incident_results.csv`).
+* **Descriptive tables.** Each value is a mean over the S scenario-level values of one configuration, never a mean
+  over all S × C runs.
+* **Paired tests.** One pair per scenario (at most S pairs).
+* **Missing values.** A metric that does not exist in a scenario is NULL there and lowers its *n*. For example,
+  critical-case metrics only exist in scenarios with a CRITICAL patient.
+* **Generated section.** Every report contains a "Design and denominators" section generated from the stored
+  results. Refresh it for an existing run with `python -m app.evaluation.report <run name>`.
+
 ## Metrics
 
 All times are in simulated seconds. `NULL` means not measurable, never zero. Per call *i*: created at
@@ -137,6 +153,15 @@ All times are in simulated seconds. `NULL` means not measurable, never zero. Per
 | Under-triage | share of calls whose severity used by the system is below the simulated label (the generator label, not clinical truth) |
 | Resource conflicts | detected, automatic reallocations, escalated (approved / rejected), estimated donor delay, estimated requester delay avoided |
 | Manual interventions | reviews + reallocation decisions. The simulated dispatcher performs no manual dispatch, re-route or hospital override, so those counts are 0. |
+| Traffic prediction accuracy / MAE | every traffic prediction made during a run, compared with the *simulated* level of that road H minutes later; reported next to the persistence baseline ("the level stays as it is"), also on the subset of roads that actually changed |
+| Priority violations | number of dispatches in which a unit went to call X while an earlier, released call Y with a strictly more severe *simulated* label kept waiting, although that unit could have served Y (capability match > 0). The label is the generator's, not clinical truth. |
+| Route failures | distinct (unit or hospital, call, purpose) combinations for which no drivable route existed (structured ROUTE_UNAVAILABLE, no walking fallback) |
+| Closure waits | legs where a moving unit had to stop at a closure because no detour existed |
+| Unsafe reallocations | executed reallocations whose donor call had an equal or higher *simulated* severity than the requester. The live rule forbids this on the system's own severity, so a non-zero value means triage disagreed with the label. |
+| Replacement ETA | mean estimated ETA of the replacement unit sent to a donor call (executed reallocations) |
+| Hospital prediction error (SIMULATION) | every hospital forecast (all candidates, at the predicted arrival time) vs the *simulated* load at that time, excluding the evaluated patient: load MAE (patients) and wait MAE (s), each next to persistence ("load stays as it is now") |
+| Traffic fallback accuracy / MAE | the rule fallback scored on the same predictions, next to the learned model and persistence |
+| Severity model (per run) | accuracy, macro precision/recall/F1, multiclass Brier, top-label ECE and confidence distribution of the deployed (calibrated) model on the scenario patients vs the simulated label, split into clear and uncertain reports |
 
 ## Statistics
 
@@ -150,6 +175,24 @@ All times are in simulated seconds. `NULL` means not measurable, never zero. Per
 * **When no test is run.** No test with fewer than 10 pairs, or when the differences are all zero.
 * **Multiple comparisons.** p-values are Holm–Bonferroni adjusted within each comparison family. Only
   adjusted p < 0.05 is called significant.
+* **Reported per test.** Reference and strategy medians, the median and mean difference, the 95 % CI, the test,
+  the raw p, the Holm-adjusted p and an **effect size**. For Wilcoxon, the effect size is the matched-pairs
+  rank-biserial correlation r = (W⁺ − W⁻)/(W⁺ + W⁻) (|r| < 0.1 negligible, 0.1 small, 0.3 medium, 0.5 large). For
+  the paired t-test it is Cohen's dz = mean(d)/sd(d) (0.2 small, 0.5 medium, 0.8 large). The interpretation is
+  stored with the value. Fewer than 10 pairs gives "insufficient sample size for reliable statistical
+  inference", and identical results give effect 0 "none (identical)".
+* **Logging.** Each comparison family logs `STATISTICAL_TEST_COMPLETED` (or `ABLATION_EVALUATION_COMPLETED`), and
+  each strategy logs `HOSPITAL_PREDICTION_EVALUATED` with its simulated hospital-forecast errors.
+
+## Offline model-quality reports
+
+| Report | Command | File | Content |
+|---|---|---|---|
+| Severity calibration | `python -m app.ml.train` | `evaluation/severity_calibration.json` | train 60 % / calibration 20 % / untouched test 20 %; raw vs calibrated Brier and ECE (10 equal-width bins), accuracy, macro P/R/F1, sample counts, method and version |
+| Traffic prediction | `python -m app.evaluation.traffic_eval` | `evaluation/traffic_prediction.json` | learned model vs rule fallback vs persistence on the time-ordered hold-out (last 25 %) of the stored SIMULATION traffic history; INSUFFICIENT DATA if the history is too small |
+
+Both reports are shown on the Evaluation page (`GET /api/evaluation/model-quality`). A missing file is shown as
+NOT RUN, never filled in.
 
 ## Commands
 
@@ -191,7 +234,17 @@ shown on the **Evaluation** page (`/evaluation`). An ADMIN can start a run of up
 * **Routing data.** OSM/OSRM represent the road network, not live conditions. OSM speed limits are often
   defaults, and OSRM is free-flow (it is re-costed with the scenario traffic).
 * **Fuel** is not consumed during an experiment.
+* **Closures.** As in the live system, when no drivable route exists a unit waits at the closure (ROUTE
+  UNAVAILABLE) until it reopens; it never drives through it at walking pace (unless `CLOSURE_ACCESS_FALLBACK=true`).
+* **Reallocation ranking.** The live and simulated policy assess the 3 fastest committed units and reallocate the
+  fastest *feasible* one (replacement exists, donor delay within the limit); otherwise the fastest is escalated.
+* **Calibrated severity model.** Results depend on the deployed model; runs record its version. Runs made before
+  calibration (e.g. `research-s42-n100`) used the raw RandomForest and the walking-pace closure fallback.
 * **Reallocation scope.** One reallocation per dispatcher cycle (live behaviour); escalations are decided
   instantly by the simulated dispatcher.
+* **City and data of the stored runs.** Every stored run (`research-s42-n100`, `final-s42-n100`,
+  `upgrade-s42-n100`, the 5/10-scenario checks) used the **Monaco** OSM extract with an OSRM build of that extract,
+  synthetic severity training data and simulated calls, traffic and hospital load. None used Bengaluru data.
+  See `evaluation/README.md`.
 * **Sample size.** Results depend on the city graph, the hospital list and the scenario distribution. A
   different city (for example Bengaluru) must be re-run, and the numbers must not be transferred.
