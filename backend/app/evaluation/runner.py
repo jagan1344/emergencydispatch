@@ -205,14 +205,15 @@ def run_experiment(ctx: EvalContext, strategies: list[StrategyConfig], n_scenari
                 done += 1
                 if progress:
                     progress(done, total)
-        summary = aggregate(results, strategies, failures, meta)
+        first = strategies[0].name
+        summary = aggregate(results, strategies, failures, meta, [r for r in incidents if r["strategy"] == first])
         status = "COMPLETED" if not failures else ("PARTIAL" if any(results.values()) else "FAILED")
         summary["status"] = status
+        meta["completed_at"] = datetime.now(timezone.utc).isoformat()
         out_dir = None
         if write_files:
             from app.evaluation.report import write_report
             out_dir = write_report(run_name, summary, results, incidents, scenarios, meta, config)
-        meta["completed_at"] = datetime.now(timezone.utc).isoformat()
         if store:
             store.finish(status, summary, meta, str(out_dir) if out_dir else None)
         log_event(log, "EXPERIMENT_COMPLETED", run=run_name, status=status, failures=len(failures),
@@ -227,7 +228,7 @@ def run_experiment(ctx: EvalContext, strategies: list[StrategyConfig], n_scenari
 
 
 def aggregate(results: dict[str, dict[int, dict]], strategies: list[StrategyConfig], failures: list[dict],
-              meta: dict) -> dict:
+              meta: dict, incidents_for_ai: list[dict] | None = None) -> dict:
     names = [s.name for s in strategies]
     metric_keys = list(M.METRICS)
     descriptive = {n: {m: S.describe([v.get(m) for v in results[n].values()]) for m in metric_keys} for n in names}
@@ -247,6 +248,44 @@ def aggregate(results: dict[str, dict[int, dict]], strategies: list[StrategyConf
     if FULL.name in names and abl:
         out["ablation_vs_full"] = S.compare({n: results[n] for n in [FULL.name, *abl]}, FULL.name, metric_keys)
     out["utilization_by_unit"] = {n: _mean_util(results[n]) for n in names}
+    for fam in ("paired_vs_baseline", "incremental", "ablation_vs_full"):
+        rows = out.get(fam) or []
+        if rows:
+            log_event(log, "ABLATION_EVALUATION_COMPLETED" if fam == "ablation_vs_full" else "STATISTICAL_TEST_COMPLETED",
+                      family=fam, comparisons=len({(r["strategy"], r["reference"]) for r in rows}), metrics=len(rows),
+                      tested=sum(1 for r in rows if r.get("p_value") is not None),
+                      significant=sum(1 for r in rows if r.get("significant")))
+    for n in names:                                   # hospital forecast vs simulated load (SIMULATION ground truth)
+        d = descriptive[n]
+        if (d.get("hospital_load_pred_mae") or {}).get("n"):
+            log_event(log, "HOSPITAL_PREDICTION_EVALUATED", strategy=n, source="SIMULATION",
+                      load_mae=d["hospital_load_pred_mae"]["mean"],
+                      load_persistence_mae=(d.get("hospital_load_persistence_mae") or {}).get("mean"),
+                      wait_mae_s=(d.get("hospital_wait_pred_mae_s") or {}).get("mean"),
+                      wait_persistence_mae_s=(d.get("hospital_wait_persistence_mae_s") or {}).get("mean"),
+                      scenarios=d["hospital_load_pred_mae"]["n"])
+    out["ai_metrics"] = ai_metrics(incidents_for_ai) if incidents_for_ai else None
+    return out
+
+
+def ai_metrics(records: list[dict]) -> dict:
+    """Severity model on the scenario patients vs the SIMULATED label (generator label, not clinical truth).
+    Triage is identical under every strategy, so one strategy's records are used."""
+    import numpy as np
+
+    from app.ml.calibration import probability_metrics
+    from app.ml.dataset import CLASSES
+    out = {"label": "simulated generator label - not clinical ground truth"}
+    for name, rows in (("all", records), ("clear_reports", [r for r in records if r.get("report_quality") == "CLEAR"]),
+                       ("uncertain_reports", [r for r in records if r.get("report_quality") == "UNCERTAIN"])):
+        rows = [r for r in rows if r.get("ml_probabilities")]
+        if len(rows) < 2:
+            out[name] = None
+            continue
+        proba = np.array([[r["ml_probabilities"].get(c, 0.0) for c in CLASSES] for r in rows])
+        m = probability_metrics([r["true_severity"] for r in rows], proba, CLASSES)
+        m["n"] = len(rows)
+        out[name] = m
     return out
 
 

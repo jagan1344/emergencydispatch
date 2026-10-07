@@ -32,7 +32,8 @@ from app.routing.engine import NoRouteError, RouteResult, RoutingEngine, Routing
 from app.routing.graph import CLOSURE_SPEED_MPS, RoadGraph
 from app.routing.traffic import CONGESTION_FACTORS
 from app.services.hospital_prediction import expected_wait_min, forecast
-from app.services.reallocation import donor_eligible, gain_sufficient, needs_reallocation, reallocation_outcome
+from app.services.reallocation import (MAX_IMPACT_EVALUATIONS, donor_eligible, gain_sufficient, needs_reallocation,
+                                      rank_donor_options)
 from app.services.routes_service import _similarity, reroute_decision, reroute_trigger
 from app.services.traffic_service import EVENT_PRESETS
 from app.utils.geo import haversine_m
@@ -40,6 +41,7 @@ from app.utils.geo import haversine_m
 from app.evaluation.strategies import StrategyConfig
 
 EQUIPMENT_AT_LEAST = {"BASIC": ("BASIC", "ADVANCED", "ICU"), "ADVANCED": ("ADVANCED", "ICU"), "ICU": ("ICU",)}
+SEV = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 BUSY = ("COMMITTED", "TO_PATIENT", "ON_SCENE", "TO_HOSPITAL", "HANDOVER")
 
 
@@ -142,7 +144,7 @@ class Inc:
 @dataclass
 class HospitalSim:
     spec: dict
-    transported: list = field(default_factory=list)      # (arrival_t, stay_s)
+    transported: list = field(default_factory=list)      # (arrival_t, stay_s, incident id)
     surge: list = field(default_factory=list)            # (t, stay_s)
     incoming: dict = field(default_factory=dict)         # unit id -> callable eta (min)
     icu: int = 0
@@ -152,12 +154,17 @@ class HospitalSim:
 
     def _stays(self):
         yield from ((a, s) for a, s in self.spec["background"])
-        yield from self.transported
+        yield from ((a, s) for a, s, _ in self.transported)
         yield from self.surge
 
     def load(self, t: float) -> int:
         n = sum(1 for d in self.spec["initial_discharges_s"] if d > t)
         return n + sum(1 for a, s in self._stays() if a <= t < a + s)
+
+    def load_excluding(self, t: float, incident_id: str) -> int:
+        """Simulated load at t without the patient whose forecast is being scored."""
+        own = sum(1 for a, s, i in self.transported if i == incident_id and a <= t < a + s)
+        return self.load(t) - own
 
     def observed(self, t: float, window_s: float) -> tuple[int, int]:
         lo = t - window_s
@@ -182,11 +189,19 @@ class Simulation:
         self.base_level: dict[str, str] = {}
         self.changed_t: dict[str, float] = {}
         self.accident_roads: set[str] = set()
+        self.level_log: dict[str, list] = {}         # road -> [(t, level index)] ground-truth traffic history
+        self.traffic_checks: list = []               # (due t, road, predicted idx, current idx, fallback idx)
+        self.hospital_checks: list = []              # (hospital, due t, predicted load, current load, predicted wait s, incident)
+        self.route_failure_keys: set = set()         # distinct (unit / point, call, purpose) without a drivable route
+        self.closure_waits = 0                       # legs that had to stop at a closure (no detour existed)
+        self.priority_violations = 0
+        self.unsafe_reallocations = 0
         for lvl, roads in scenario["initial_traffic"].items():
             for r in roads:
                 self.g.set_road_state(r, lvl, 1.0, False)
                 self.base_level[r] = lvl
                 self.changed_t[r] = -1800.0
+                self.level_log[r] = [(-1800.0, LEVELS.index(lvl))]
         self.units = {u["id"]: Unit(u["id"], u["equipment_level"], u["fuel_level"], u["missions_today"], u["lat"], u["lon"])
                       for u in scenario["fleet"]}
         for u in scenario["fleet"]:
@@ -296,6 +311,7 @@ class Simulation:
             level, blocked, mult = EVENT_PRESETS[kind]
         self.g.set_road_state(road, level, mult, blocked)
         self.changed_t[road] = self.t
+        self.level_log.setdefault(road, [(-1e9, 0)]).append((self.t, LEVELS.index(level)))
         if kind == "ACCIDENT":
             self.accident_roads.add(road)
         elif kind == "CLEAR":
@@ -331,11 +347,17 @@ class Simulation:
         if not rows:
             return
         changed = 0
-        for row, i, (lvl_i, _conf, _method) in zip(rows, ids, model.predict(rows)):
+        if model.method == "FALLBACK":
+            fb = [p[0] for p in model.predict(rows)]
+        else:
+            from app.ml.traffic_model import TrafficModel
+            fb = [p[0] for p in TrafficModel(model.horizon_min, "eval-fallback", "FALLBACK", model.stats).predict(rows)]
+        for row, i, (lvl_i, _conf, _method), fb_i in zip(rows, ids, model.predict(rows), fb):
             level = LEVELS[lvl_i]
             mult = float(self.g.road_multiplier[i]) if row["accident"] and level in ("SEVERE", "HEAVY") else 1.0
             self.g.set_road_prediction(row["road_id"], level, mult)
             changed += level != self.g.road_level[i]
+            self.traffic_checks.append((self.t + H * 60, row["road_id"], lvl_i, row["cur"], fb_i))
         self.counters["traffic_predictions"] += len(rows)
         self.counters["predicted_changes"] += changed
 
@@ -423,7 +445,10 @@ class Simulation:
                 spd = self._speed(seg, entering=frac * seg.length_m <= 0.01, leg=leg)
                 if spd is None:          # about to enter a closed road: re-plan (reactive detour)
                     self._detour(u, k)
-                    if u.leg is leg:     # no way round: wait at the closure (should not happen: closure route)
+                    if u.leg is leg:     # no drivable way round: wait at the closure (ROUTE UNAVAILABLE)
+                        if not getattr(leg, "waited", False):
+                            leg.waited = True
+                            self.closure_waits += 1
                         break
                     leg = u.leg
                     continue
@@ -464,6 +489,7 @@ class Simulation:
         try:
             rr = self._route(point, leg.dest, origin_node=origin_node)
         except NoRouteError:
+            self.route_failure_keys.add((u.id, u.incident.id if u.incident else None, "detour"))
             return
         if u.incident is not None:
             u.incident.detours += 1
@@ -488,7 +514,7 @@ class Simulation:
             inc.hospital_arrival_t = at
             inc.hospital_wait_sim_s = 60 * expected_wait_min(h.load(at), h.spec["emergency_capacity"],
                                                              self.st.ed_treatment_slot_min, self.st.hospital_max_wait_min)
-            h.transported.append((at, inc.spec["hospital_stay_s"]))
+            h.transported.append((at, inc.spec["hospital_stay_s"], inc.id))
             inc.state = "HANDOVER"
             self._set_status(u, "HANDOVER")
             u.timer_until = at + inc.spec["handover_time_s"]
@@ -603,6 +629,7 @@ class Simulation:
             try:
                 rr = self._route((u.lat, u.lon), inc.point)
             except NoRouteError:
+                self.route_failure_keys.add((u.id, inc.id, "dispatch"))
                 continue
             out.append({"unit": u, "rr": rr, "eta": self._eta(rr), "distance": rr.distance_m,
                         "suitable": capability_match(inc.required, u.equipment) > 0})
@@ -660,13 +687,28 @@ class Simulation:
                     taken.add(pick["unit"].id)
             method = "WEIGHTED_SCORE" if self.s.traffic else "NEAREST"
         ms = (time.perf_counter() - t0) * 1000
+        dispatched = []
         for iid, uid in sorted(assignment.items(), key=lambda kv: -by_id[kv[0]].priority):
             ranked = evals[iid]
             chosen = next(c for c in ranked if c["unit"].id == uid)
             if self.units[uid].status != "AVAILABLE":
                 continue
             self._dispatch(by_id[iid], chosen, ranked, method)
+            dispatched.append((by_id[iid], self.units[uid]))
         self.decision_ms.append(ms)
+        self._count_priority_violations(dispatched)
+
+    def _count_priority_violations(self, dispatched: list) -> None:
+        """A unit given to call X while a call Y with a strictly more severe SIMULATED label, waiting since earlier and
+        released for dispatch, stays unserved although that unit could have served Y (capability > 0)."""
+        still = [y for y in self.incs if y.state == "WAITING" and y.release_t <= self.t]
+        for x, u in dispatched:
+            for y in still:
+                if (SEV.index(y.spec["true_severity"]) > SEV.index(x.spec["true_severity"]) and y.spec["t"] < x.spec["t"]
+                        and capability_match(required_capability(y.spec["true_severity"], y.spec["case"]["emergency_type"]),
+                                             u.equipment) > 0):
+                    self.priority_violations += 1
+                    break
 
     def _dispatch(self, inc: Inc, chosen: dict, ranked: list[dict], method: str, origin=None) -> None:
         u: Unit = chosen["unit"]
@@ -718,17 +760,25 @@ class Simulation:
                 continue
             if not gain_sufficient(alt_eta, self._eta(rr), st):
                 continue
-            options.append((self._eta(rr), -donor.priority, u.id, u, donor, point, rr))
+            options.append({"to_eta_s": self._eta(rr), "donor_priority": donor.priority, "unit_id": u.id, "_u": u,
+                            "_donor": donor, "_point": point, "_rr": rr})
         if not options:
             return False
-        to_eta, _, _, u, donor, point, rr = min(options, key=lambda o: o[:3])
-        donor_before = self._decision_eta(u.leg)
-        free = [x for x in self._free_units() if x is not u]
-        d_ranked = self._rank(donor, self._candidates(donor, free, st.max_dispatch_candidates))
-        repl = next((c for c in d_ranked if c["suitable"]), d_ranked[0] if d_ranked else None)
-        impact = (repl["eta"] - donor_before) if repl else math.inf
-        outcome = reallocation_outcome(repl is not None, impact, st)
-        rec = {"t": round(self.t, 1), "unit": u.id, "requester": inc.id, "requester_severity": inc.severity,
+        options.sort(key=lambda o: (o["to_eta_s"], -o["donor_priority"], o["unit_id"]))
+        for o in options[:MAX_IMPACT_EVALUATIONS]:          # same bounded impact assessment as the live policy
+            before = self._decision_eta(o["_u"].leg)
+            free = [x for x in self._free_units() if x is not o["_u"]]
+            d_ranked = self._rank(o["_donor"], self._candidates(o["_donor"], free, st.max_dispatch_candidates))
+            repl = next((c for c in d_ranked if c["suitable"]), d_ranked[0] if d_ranked else None)
+            o.update(impact_s=(repl["eta"] - before) if repl else math.inf, replacement=repl is not None,
+                     _before=before, _repl=repl, _d_ranked=d_ranked)
+        choice, outcome = rank_donor_options(options[:MAX_IMPACT_EVALUATIONS], st)
+        u, donor, point, rr = choice["_u"], choice["_donor"], choice["_point"], choice["_rr"]
+        to_eta, donor_before, repl, d_ranked = choice["to_eta_s"], choice["_before"], choice["_repl"], choice["_d_ranked"]
+        impact = choice["impact_s"]
+        rec = {"replacement_eta_s": round(repl["eta"], 1) if repl else None,
+               "unsafe_vs_simulated_label": SEV.index(donor.spec["true_severity"]) >= SEV.index(inc.spec["true_severity"]),
+               "t": round(self.t, 1), "unit": u.id, "requester": inc.id, "requester_severity": inc.severity,
                "donor": donor.id, "donor_severity": donor.severity, "decision": outcome,
                "requester_eta_s": round(to_eta, 1), "alternative_eta_s": None if math.isinf(alt_eta) else round(alt_eta, 1),
                "donor_eta_before_s": round(donor_before, 1),
@@ -746,6 +796,8 @@ class Simulation:
         self.conflicts.append(rec)
         self.log("RESOURCE_CONFLICT", **rec)
         # execute: the unit continues from its live position to the requester, the donor gets the replacement
+        if rec["unsafe_vs_simulated_label"]:
+            self.unsafe_reallocations += 1
         donor.unit, donor.state = None, "WAITING"
         donor.reallocated_away += 1
         u.incident = None
@@ -768,6 +820,7 @@ class Simulation:
             try:
                 rr = self._route(origin, (h.spec["lat"], h.spec["lon"]))
             except NoRouteError:
+                self.route_failure_keys.add((h.spec["id"], inc.id, "hospital"))
                 continue
             routes[h.spec["id"]] = rr
             inputs.append(HospitalInput(h.spec["id"], h.spec["name"], self._eta(rr), max(0.0, self._eta(rr) - rr.base_duration_s),
@@ -787,6 +840,8 @@ class Simulation:
                              self.st.hospital_rate_window_min, self.st.ed_mean_stay_min, self.st.ed_treatment_slot_min,
                              self.st.hospital_max_wait_min, hi.hospital_id)
                 hi.predicted_load, hi.expected_wait_s, hi.forecast = f.predicted_load, f.expected_wait_min * 60, f.as_dict()
+                self.hospital_checks.append((hi.hospital_id, self.t + hi.eta_s, f.predicted_load, hi.current_load,
+                                             f.expected_wait_min * 60, inc.id))
             ranked = score_hospitals(inputs, reqs)
             best_id = ranked[0]["hospital_id"]
             inc.hospital_wait_pred_s = ranked[0]["expected_wait_s"]
@@ -817,6 +872,54 @@ class Simulation:
         h.incoming[u.id] = lambda u=u: (self._decision_eta(u.leg) / 60) if u.leg else 0.0
         self._set_status(u, "TO_HOSPITAL")
         self.log("HOSPITAL_SELECTED", incident=inc.id, hospital=best_id, missing=inc.hospital_missing)
+
+    def traffic_prediction_quality(self) -> dict:
+        """Every prediction whose horizon ended inside the run, scored against the simulated ground truth, next to
+        the persistence baseline ("the level stays as it is now")."""
+        def level_at(road, t):
+            lvl = 0
+            for t0, li in self.level_log.get(road, [(-1e9, 0)]):
+                if t0 <= t:
+                    lvl = li
+                else:
+                    break
+            return lvl
+        rows = [(p, c, level_at(r, due), fb) for due, r, p, c, fb in self.traffic_checks if due <= self.end_t]
+        if not rows:
+            return {}
+        n = len(rows)
+        changed = [x for x in rows if x[2] != x[1]]
+        return {"traffic_pred_samples": n, "traffic_pred_accuracy": 100 * sum(p == a for p, _, a, _ in rows) / n,
+                "traffic_fallback_accuracy": 100 * sum(f == a for _, _, a, f in rows) / n,
+                "traffic_persistence_accuracy": 100 * sum(c == a for _, c, a, _ in rows) / n,
+                "traffic_pred_mae": sum(abs(p - a) for p, _, a, _ in rows) / n,
+                "traffic_fallback_mae": sum(abs(f - a) for _, _, a, f in rows) / n,
+                "traffic_persistence_mae": sum(abs(c - a) for _, c, a, _ in rows) / n,
+                "traffic_changed_samples": len(changed),
+                "traffic_pred_accuracy_on_changes": 100 * sum(p == a for p, _, a, _ in changed) / len(changed) if changed else None}
+
+    def hospital_prediction_quality(self) -> dict:
+        """Every hospital forecast (all candidates, at the predicted arrival time) scored against the SIMULATED load at
+        that time (excluding the evaluated patient), next to persistence ("load stays as it is now"). Waits use the
+        hospital module's queue model on those loads - simulated ground truth, not real ED data."""
+        st = self.st
+        wait = lambda load, cap: 60 * expected_wait_min(load, cap, st.ed_treatment_slot_min, st.hospital_max_wait_min)
+        rows = []
+        for hid, due, pred, cur, pred_wait, iid in self.hospital_checks:
+            if due > self.end_t:
+                continue
+            h = self.hosp[hid]
+            actual = h.load_excluding(due, iid)
+            cap = h.spec["emergency_capacity"]
+            rows.append((abs(pred - actual), abs(cur - actual), abs(pred_wait - wait(actual, cap)),
+                         abs(wait(cur, cap) - wait(actual, cap))))
+        if not rows:
+            return {}
+        n = len(rows)
+        return {"hospital_pred_samples": n, "hospital_load_pred_mae": sum(r[0] for r in rows) / n,
+                "hospital_load_persistence_mae": sum(r[1] for r in rows) / n,
+                "hospital_wait_pred_mae_s": sum(r[2] for r in rows) / n,
+                "hospital_wait_persistence_mae_s": sum(r[3] for r in rows) / n}
 
     # ---------------------------------------------------------------- main loop
     def run(self) -> "Simulation":

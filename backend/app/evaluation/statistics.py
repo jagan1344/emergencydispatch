@@ -13,6 +13,11 @@ Test selection (documented in every result row):
     percentile bootstrap (10 000 resamples, fixed seed) is reported instead.
   * p-values are also Holm-Bonferroni adjusted within each (strategy vs reference) family of metrics, because
     many metrics are tested at once. "significant" uses the ADJUSTED p-value < 0.05.
+  * Medians of both sides and the median of the paired differences are reported next to the means.
+  * Effect size (paired): matched-pairs rank-biserial correlation r = (R+ - R-) / (R+ + R-) over the non-zero
+    differences (with the Wilcoxon test, and whenever no parametric test applies), or Cohen's d_z = mean(d) / sd(d)
+    (with the paired t-test). Conventional labels: |r| < 0.1 negligible, < 0.3 small, < 0.5 medium, else large;
+    |d_z| < 0.2 negligible, < 0.5 small, < 0.8 medium, else large. The sign follows d = strategy - reference.
 """
 from __future__ import annotations
 
@@ -42,6 +47,34 @@ def _bootstrap_ci(d: np.ndarray, seed: int = 12345, n: int = 10_000) -> tuple[fl
     return float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
 
 
+def rank_biserial(d: np.ndarray) -> float | None:
+    nz = d[d != 0]
+    if len(nz) < 2:
+        return None
+    ranks = sps.rankdata(np.abs(nz))
+    pos, neg = ranks[nz > 0].sum(), ranks[nz < 0].sum()
+    return float((pos - neg) / (pos + neg))
+
+
+def cohens_dz(d: np.ndarray) -> float | None:
+    if len(d) < 2 or d.std(ddof=1) == 0:
+        return None
+    return float(d.mean() / d.std(ddof=1))
+
+
+def interpret(value: float | None, kind: str) -> str | None:
+    if value is None:
+        return None
+    a = abs(value)
+    cuts = (0.1, 0.3, 0.5) if kind == "rank_biserial" else (0.2, 0.5, 0.8)
+    return "negligible" if a < cuts[0] else "small" if a < cuts[1] else "medium" if a < cuts[2] else "large"
+
+
+def _effect(out: dict, d: np.ndarray, kind: str) -> None:
+    v = rank_biserial(d) if kind == "rank_biserial" else cohens_dz(d)
+    out.update(effect_size=v, effect_size_type=kind if v is not None else None, effect_interpretation=interpret(v, kind))
+
+
 def paired(ref: dict[int, float | None], other: dict[int, float | None], metric: str) -> dict:
     keys = sorted(k for k in ref if k in other and ref[k] is not None and other[k] is not None)
     a = np.array([ref[k] for k in keys], dtype=float)
@@ -51,6 +84,10 @@ def paired(ref: dict[int, float | None], other: dict[int, float | None], metric:
     out = {"metric": metric, "pairs": int(len(d)), "reference_mean": float(a.mean()) if len(a) else None,
            "strategy_mean": float(b.mean()) if len(b) else None, "mean_difference": float(d.mean()) if len(d) else None,
            "pct_change": None, "improvement": None, "ci95_low": None, "ci95_high": None, "ci_method": None,
+           "reference_median": float(np.median(a)) if len(a) else None,
+           "strategy_median": float(np.median(b)) if len(b) else None,
+           "median_difference": float(np.median(d)) if len(d) else None,
+           "effect_size": None, "effect_size_type": None, "effect_interpretation": None,
            "test": None, "statistic": None, "p_value": None, "normality_p": None, "note": None}
     if len(d) and a.mean() != 0:
         out["pct_change"] = float(100 * d.mean() / abs(a.mean()))
@@ -58,10 +95,13 @@ def paired(ref: dict[int, float | None], other: dict[int, float | None], metric:
         # positive improvement = better for this metric (lower-is-better metrics invert the sign)
         out["improvement"] = float(direction * d.mean())
     if len(d) < MIN_PAIRS:
-        out["note"] = f"insufficient pairs (n={len(d)} < {MIN_PAIRS}): no significance test"
+        out["note"] = (f"insufficient pairs (n={len(d)} < {MIN_PAIRS}): no significance test - "
+                       f"insufficient sample size for reliable statistical inference")
+        _effect(out, d, "rank_biserial")
         return out
     if np.allclose(d, 0):
-        out.update(test="none", note="identical results in every scenario", ci95_low=0.0, ci95_high=0.0, ci_method="exact")
+        out.update(test="none", note="identical results in every scenario", ci95_low=0.0, ci95_high=0.0, ci_method="exact",
+                   effect_size=0.0, effect_size_type="rank_biserial", effect_interpretation="none (identical)")
         return out
     normal_p = float(sps.shapiro(d).pvalue) if 3 <= len(d) <= 5000 and np.ptp(d) > 0 else None
     out["normality_p"] = normal_p
@@ -71,17 +111,20 @@ def paired(ref: dict[int, float | None], other: dict[int, float | None], metric:
         h = float(sps.t.ppf(0.975, len(d) - 1) * se)
         out.update(test="paired t-test", statistic=float(t.statistic), p_value=float(t.pvalue),
                    ci95_low=float(d.mean() - h), ci95_high=float(d.mean() + h), ci_method="t")
+        _effect(out, d, "cohens_dz")
     else:
         nz = d[d != 0]
         if len(nz) < MIN_PAIRS:
             out.update(note=f"only {len(nz)} non-zero differences: no significance test", test="none")
             lo, hi = _bootstrap_ci(d)
             out.update(ci95_low=lo, ci95_high=hi, ci_method="bootstrap")
+            _effect(out, d, "rank_biserial")
             return out
         w = sps.wilcoxon(b, a, zero_method="wilcox")
         lo, hi = _bootstrap_ci(d)
         out.update(test="Wilcoxon signed-rank", statistic=float(w.statistic), p_value=float(w.pvalue),
                    ci95_low=lo, ci95_high=hi, ci_method="bootstrap")
+        _effect(out, d, "rank_biserial")
     return out
 
 

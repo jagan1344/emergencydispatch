@@ -29,7 +29,8 @@ class RunRequest(BaseModel):
     ablation: bool = False
     strategies: list[str] = Field(default_factory=list)
     scenarios: int = Field(default=20, ge=1, le=MAX_API_SCENARIOS)
-    seed: int = Field(default=42, ge=0, le=2**31 - 1)
+    seed: int = Field(default_factory=lambda: __import__("app.config", fromlist=["get_settings"]).get_settings().evaluation_seed,
+                      ge=0, le=2**31 - 1)
     name: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9._-]+$")
 
 
@@ -52,6 +53,24 @@ def run_dict(r: ExperimentRun, full: bool = False) -> dict:
 def strategies(_: User = Depends(any_user)):
     return {"progressive": [dict(name=s.name, **s.flags()) for s in PROGRESSIVE.values()],
             "ablations": [dict(name=s.name, **s.flags()) for s in ABLATIONS.values()]}
+
+
+@router.get("/model-quality")
+def model_quality(_: User = Depends(any_user)):
+    """Offline model-quality reports written by the CLIs (severity calibration, traffic ML vs fallback vs
+    persistence). Values are read from the files; a missing file is reported as NOT RUN, never filled in."""
+    import json
+
+    from app.evaluation import traffic_eval
+    from app.ml.train import CALIBRATION_SUMMARY
+
+    def read(path, how):
+        try:
+            return json.loads(path.read_text())
+        except (OSError, ValueError):
+            return {"status": "NOT RUN", "how_to_run": how}
+    return {"severity_calibration": read(CALIBRATION_SUMMARY, "python -m app.ml.train"),
+            "traffic_prediction": read(traffic_eval.OUT, "python -m app.evaluation.traffic_eval")}
 
 
 @router.get("/runs")

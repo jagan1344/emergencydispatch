@@ -141,13 +141,14 @@ def _md_table(summary: dict, names: list[str], metrics: list[str]) -> list[str]:
 def _md_tests(rows: list[dict], title: str) -> list[str]:
     if not rows:
         return []
-    out = [f"### {title}", "", "| Comparison | Metric | Pairs | Mean diff | 95% CI | Test | p (Holm) | Significant |",
-           "|---|---|---:|---:|---|---|---:|---|"]
+    out = [f"### {title}", "", "| Comparison | Metric | Pairs | Median ref | Median strat | Mean diff | 95% CI | Test | p (raw) | "
+           "p (Holm) | Effect size | Significant |", "|---|---|---:|---:|---:|---:|---|---|---:|---:|---|---|"]
     for r in rows:
         if r["metric"] not in ("response_time_s", "patient_wait_s", "critical_delay_s", "critical_delayed_pct",
                                "hospital_wait_simulated_s", "time_to_treatment_s", "reroute_saved_s",
                                "manual_interventions", "hospital_capability_gap_pct", "under_triage_pct",
-                               "eta_abs_error_s", "reactive_detours"):
+                               "eta_abs_error_s", "reactive_detours", "priority_violations", "route_failures",
+                               "unsafe_reallocations", "hospital_load_pred_mae", "traffic_pred_accuracy"):
             continue
         ci = "n/a" if r["ci95_low"] is None else f"[{r['ci95_low']:.1f}, {r['ci95_high']:.1f}]"
         p = "n/a" if r.get("p_adjusted") is None else f"{r['p_adjusted']:.4f}"
@@ -156,8 +157,93 @@ def _md_tests(rows: list[dict], title: str) -> list[str]:
         if r.get("note"):
             test += f" ({r['note']})"
         md = "n/a" if r["mean_difference"] is None else f"{r['mean_difference']:+.2f}"
-        out.append(f"| {r['strategy']} vs {r['reference']} | {METRICS[r['metric']][0]} | {r['pairs']} | {md} | {ci} | {test} | {p} | {sig} |")
+        f = lambda v: "n/a" if v is None else f"{v:.2f}"
+        praw = "n/a" if r.get("p_value") is None else f"{r['p_value']:.4g}"
+        eff = "n/a" if r.get("effect_size") is None else f"{r['effect_size']:+.2f} ({r['effect_size_type']}, {r['effect_interpretation']})"
+        out.append(f"| {r['strategy']} vs {r['reference']} | {METRICS[r['metric']][0]} | {r['pairs']} | {f(r.get('reference_median'))} | "
+                   f"{f(r.get('strategy_median'))} | {md} | {ci} | {test} | {praw} | {p} | {eff} | {sig} |")
     return out + [""]
+
+
+DESIGN_START, DESIGN_END = "<!-- design-and-denominators:start -->", "<!-- design-and-denominators:end -->"
+
+
+def design_section(summary: dict, scenario_rows: list[dict]) -> list[str]:
+    """What every count in the report refers to - generated from the stored results, never typed in."""
+    from app.evaluation.strategies import ABLATIONS, PROGRESSIVE
+    names = summary["strategies"]
+    n_sc = summary.get("scenario_count") or len(scenario_rows)
+    prog = [n for n in names if n in PROGRESSIVE]
+    abl = [n for n in names if n in ABLATIONS]
+    failures = summary.get("failures") or []
+    runs = n_sc * len(names)
+    calls = sum(int(r["incidents"]) for r in scenario_rows)
+    uncertain = sum(int(r.get("uncertain_reports") or 0) for r in scenario_rows)
+    desc = summary["descriptive"]
+    out = [DESIGN_START, "## Design and denominators", "",
+           "**Unit of analysis: the scenario.** Every number in this report is derived from the counts below.", "",
+           "| Quantity | Value | How it is obtained |", "|---|---:|---|",
+           f"| Scenarios | {n_sc} | generated once from seed {summary.get('seed')}; scenario *k* uses RNG seed "
+           f"({summary.get('seed')}, *k*) and has a stored fingerprint |",
+           f"| Strategy configurations | {len(names)} | {len(prog)} progressive systems ({', '.join(prog) or '-'})"
+           + (f" + {len(abl)} ablations of FULL ({', '.join(abl)})" if abl else "")
+           + ("; FULL is run once and serves as the last progressive system **and** the ablation reference" if abl and "FULL" in prog else "")
+           + " |",
+           f"| **Simulation runs** | **{runs}** | {n_sc} scenarios × {len(names)} configurations: every scenario is replayed "
+           f"once under every configuration (same patients, fleet, hospitals, traffic, disruptions; only the decision "
+           f"strategy differs) |",
+           f"| Failed runs | {len(failures)} | recorded in failures.csv and excluded from that configuration's statistics |",
+           f"| Emergency calls per configuration | {calls} | sum of the calls of the {n_sc} scenarios ({uncertain} with an "
+           f"uncertain report); identical for every configuration |",
+           f"| Simulated call outcomes | {calls * len(names)} | {calls} calls × {len(names)} configurations "
+           f"(incident_results.csv) |", "",
+           "**How the statistics use these runs.**",
+           f"* *Comparison table*: each cell is the mean over the scenarios of one configuration (scenario-level value = "
+           f"mean over that scenario's calls, or a count/share for the scenario). It is NOT a mean over {runs} runs.",
+           f"* *Paired tests*: one pair per scenario (the same scenario under two configurations), so at most {n_sc} pairs "
+           f"per test; the runs of different configurations are never pooled. Families: "
+           + "; ".join(x for x in [
+               f"vs BASELINE ({len([n for n in prog if n != 'BASELINE'])} comparisons)" if "BASELINE" in prog and len(prog) > 1 else "",
+               f"incremental, each system vs the previous one ({max(0, len(prog) - 1)})" if len(prog) > 1 else "",
+               f"ablation vs FULL ({len(abl)})" if abl else ""] if x)
+           + ". Holm correction is applied within each comparison over all metrics.",
+           "* A metric that does not exist in a scenario (e.g. no CRITICAL patient, no re-route) is NULL there, so its "
+           "*n* is smaller than the number of scenarios:", ""]
+    ref = "FULL" if "FULL" in names else names[0]
+    short = [(m, desc[ref][m]["n"]) for m in METRICS if desc[ref].get(m) and desc[ref][m]["n"] < n_sc]
+    if short:
+        out += ["| Metric | scenarios with a value (" + ref + ") | why |", "|---|---:|---|"]
+        why = {  # most specific prefix first
+               "critical_delay_avoided": "scenarios with an executed reallocation where a free alternative unit existed "
+                                         "(otherwise the avoided delay is undefined)",
+               "donor_delay": "scenarios with an executed reallocation",
+               "critical": "scenarios with at least one patient whose simulated label is CRITICAL",
+               "reroute_improvement": "scenarios with an accepted re-route with a finite old ETA",
+               "hospital_wait_predicted": "scenarios where the hospital prediction was used",
+               "traffic": "scenarios with at least one traffic prediction whose horizon ended inside the run"}
+        for m, n in short:
+            reason = next((v for k, v in why.items() if m.startswith(k)), "scenarios where the metric is measurable")
+            out.append(f"| {METRICS[m][0]} | {n} | {reason} |")
+    else:
+        out.append(f"All metrics of {ref} have a value in every scenario.")
+    out += ["", DESIGN_END, ""]
+    return out
+
+
+def refresh_design_section(run_dir: Path) -> Path:
+    """Insert / replace the design section of an existing REPORT.md from its stored summary.json and
+    scenarios_summary.csv (no re-simulation, no hand editing)."""
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    rows = list(csv.DictReader((run_dir / "scenarios_summary.csv").open(encoding="utf-8")))
+    md = (run_dir / "REPORT.md").read_text(encoding="utf-8")
+    block = "\n".join(design_section(summary, rows))
+    if DESIGN_START in md:
+        md = md[:md.index(DESIGN_START)] + block + md[md.index(DESIGN_END) + len(DESIGN_END) + 1:]
+    else:
+        anchor = "## Comparison (mean over scenarios)"
+        md = md.replace(anchor, block + "\n" + anchor, 1)
+    (run_dir / "REPORT.md").write_text(md, encoding="utf-8")
+    return run_dir / "REPORT.md"
 
 
 def write_report(run_name: str, summary: dict, results: dict, incidents: list[dict], scenarios: list[dict],
@@ -189,8 +275,9 @@ def write_report(run_name: str, summary: dict, results: dict, incidents: list[di
     if tests:
         _write_csv(out / "paired_tests.csv", tests,
                    ["family", "strategy", "reference", "metric", "pairs", "reference_mean", "strategy_mean",
-                    "mean_difference", "pct_change", "improvement", "ci95_low", "ci95_high", "ci_method", "test",
-                    "statistic", "p_value", "p_adjusted", "significant", "normality_p", "note"])
+                    "reference_median", "strategy_median", "median_difference", "mean_difference", "pct_change",
+                    "improvement", "ci95_low", "ci95_high", "ci_method", "test", "statistic", "p_value", "p_adjusted",
+                    "significant", "effect_size", "effect_size_type", "effect_interpretation", "normality_p", "note"])
     if summary["failures"]:
         _write_csv(out / "failures.csv", summary["failures"], ["scenario", "strategy", "error"])
     figs = _figures(out, summary)
@@ -209,10 +296,27 @@ def write_report(run_name: str, summary: dict, results: dict, incidents: list[di
           f"* Severity model: {meta['severity_model']['version']} (dataset: {meta['severity_model']['dataset']})",
           f"* Traffic prediction: **{tm.get('label', 'n/a')}** ({tm.get('version', '')}) - {(tm.get('metrics') or {}).get('reason', '')}",
           f"* Hospital prediction: {meta['hospital_model']['version']} - {meta['hospital_model']['label']}",
-          f"* Started {meta.get('started_at')}, completed {meta.get('completed_at', 'n/a')}", "",
-          "## Comparison (mean over scenarios)", ""]
+          f"* Started {meta.get('started_at')}, completed {meta.get('completed_at', 'n/a')}", ""]
+    md += design_section(summary, [{"incidents": len(sc["incidents"]),
+                                    "uncertain_reports": sum(1 for i in sc["incidents"] if i.get("report_quality") == "UNCERTAIN")}
+                                   for sc in scenarios])
+    md += ["## Comparison (mean over scenarios)", ""]
     main = [m for m in METRICS if m not in ("decision_ms",)]
     md += _md_table(summary, names, main) + [""]
+    ai = summary.get("ai_metrics") or {}
+    if ai.get("all"):
+        md += ["## Severity model on the scenario patients", "",
+               f"Reference: {ai['label']}. Triage is identical under every strategy.", "",
+               "| Calls | n | Accuracy | Precision (macro) | Recall (macro) | F1 (macro) | Brier | ECE | Median confidence | Share < 0.75 |",
+               "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+        for k, lab in (("all", "all"), ("clear_reports", "clear reports"), ("uncertain_reports", "uncertain reports")):
+            m = ai.get(k)
+            if m:
+                cd = m["confidence_distribution"]
+                md.append(f"| {lab} | {m['n']} | {m['accuracy']:.3f} | {m['precision_macro']:.3f} | {m['recall_macro']:.3f} | "
+                          f"{m['f1_macro']:.3f} | {m['brier_multiclass']:.3f} | {m['ece_top_label']:.3f} | {cd['median']:.3f} | "
+                          f"{cd['share_below_0_75']:.3f} |")
+        md.append("")
     md += _md_tests(summary.get("paired_vs_baseline", []), "Paired comparisons against BASELINE")
     md += _md_tests(summary.get("incremental", []), "Incremental contribution (each system vs the previous one)")
     md += _md_tests(summary.get("ablation_vs_full", []), "Ablation (FULL minus one capability vs FULL)")
@@ -224,3 +328,9 @@ def write_report(run_name: str, summary: dict, results: dict, incidents: list[di
            "Metric definitions: `backend/app/evaluation/metrics.py`; test selection: `backend/app/evaluation/statistics.py`."]
     (out / "REPORT.md").write_text("\n".join(md), encoding="utf-8")
     return out
+
+
+if __name__ == "__main__":
+    import sys
+    for name in sys.argv[1:]:
+        print(refresh_design_section(RESULTS_DIR / name))

@@ -307,6 +307,13 @@ def test_runner_persists_results_and_isolates_failures(ctx, monkeypatch, tmp_pat
                                                      ("SEVERITY", "FAILED"): 1, ("FULL", "OK"): 3}
     assert fp == 3
     out = tmp_path / "pytest-eval"
+    report = (out / "REPORT.md").read_text()
+    assert "| **Simulation runs** | **9** | 3 scenarios × 3 configurations" in report       # denominators stated
+    assert f"| Failed runs | 1 |" in report and "It is NOT a mean over 9 runs" in report
+    assert f"| Emergency calls per configuration | {sum(len(s['incidents']) for s in res['scenarios'])} |" in report
+    from app.evaluation.report import refresh_design_section
+    refresh_design_section(out)                                  # idempotent: one section after a refresh
+    assert (out / "REPORT.md").read_text().count("## Design and denominators") == 1
     for f in ("comparison_summary.csv", "scenario_results.csv", "incident_results.csv", "statistics.csv",
               "summary.json", "run_metadata.json", "REPORT.md", "failures.csv"):
         assert (out / f).exists(), f
@@ -329,6 +336,12 @@ def test_all_strategies_execute_on_the_same_scenarios(ctx, tmp_path, monkeypatch
     assert {r["strategy"] for r in s["paired_vs_baseline"]} == {"SEVERITY", "TRAFFIC", "HOSPITAL", "FULL"}
     assert {r["strategy"] for r in s["ablation_vs_full"]} == set(ABLATIONS)
     assert all("insufficient" in (r["note"] or "") for r in s["paired_vs_baseline"])   # n=2: no significance claims
+    ai = s["ai_metrics"]["all"]
+    assert ai["n"] > 0 and 0 <= ai["accuracy"] <= 1 and ai["brier_multiclass"] >= 0 and "reliability_curve" in ai
+    assert "not clinical" in s["ai_metrics"]["label"]
+    t = res["results"]["TRAFFIC"][1]                        # traffic prediction scored against the simulated state
+    assert t["traffic_pred_samples"] > 0 and 0 <= t["traffic_pred_accuracy"] <= 100
+    assert "traffic_pred_accuracy" not in res["results"]["SEVERITY"][1]       # no prediction in that strategy
 
 
 def test_evaluation_api(client, viewer_headers, dispatcher_headers):
@@ -342,3 +355,69 @@ def test_evaluation_api(client, viewer_headers, dispatcher_headers):
     assert client.get("/api/evaluation/strategies", headers=viewer_headers).json()["progressive"][0]["name"] == "BASELINE"
     assert client.post("/api/evaluation/runs", json={"scenarios": 1}, headers=dispatcher_headers).status_code == 403
     assert client.get("/api/evaluation/runs/does-not-exist", headers=viewer_headers).status_code == 404
+
+
+def test_effect_sizes_medians_and_insufficient_samples():
+    rng = np.random.default_rng(7)
+    ref = {k: float(v) for k, v in enumerate(rng.normal(500, 50, 40))}
+    faster = {k: v - 25 - float(rng.exponential(8)) for k, v in ref.items()}
+    r = S.paired(ref, faster, "response_time_s")
+    assert r["effect_size"] is not None and r["effect_size"] < 0              # strategy - reference: faster -> negative
+    assert r["effect_interpretation"] in ("small", "medium", "large")
+    assert r["reference_median"] > r["strategy_median"] and r["median_difference"] < 0
+    assert r["effect_size_type"] == ("cohens_dz" if r["test"] == "paired t-test" else "rank_biserial")
+    assert S.rank_biserial(np.array([1.0, 2.0, -0.5, 3.0])) == pytest.approx(0.8)      # (9 - 1) / 10
+    assert S.cohens_dz(np.array([1.0, 2.0, 3.0])) == pytest.approx(2.0)
+    small = S.paired({0: 1.0, 1: 3.0, 2: 2.0}, {0: 2.0, 1: 4.0, 2: 2.5}, "response_time_s")
+    assert small["p_value"] is None and "insufficient sample size for reliable statistical inference" in small["note"]
+    assert S.interpret(0.05, "rank_biserial") == "negligible" and S.interpret(0.9, "cohens_dz") == "large"
+
+
+def test_new_operational_metrics_are_measured(ctx):
+    sc = generate_scenario(ctx.space, 42, 4, ScenarioOptions())
+    for strat in (BASELINE, HOSPITAL, FULL):
+        sim = Simulation(ctx, sc, strat, _triages(ctx, sc)).run()
+        m = scenario_metrics(sim, incident_records(sim, strat.name))
+        for k in ("priority_violations", "route_failures", "closure_waits", "unsafe_reallocations"):
+            assert isinstance(m[k], int) and m[k] >= 0, k
+        if strat.hospital_intelligence and m.get("hospital_pred_samples"):
+            assert m["hospital_load_pred_mae"] >= 0 and m["hospital_load_persistence_mae"] >= 0
+            assert m["hospital_wait_pred_mae_s"] >= 0
+        if strat.traffic_prediction and m.get("traffic_pred_samples"):
+            assert 0 <= m["traffic_fallback_accuracy"] <= 100 and m["traffic_fallback_mae"] >= 0
+        if not strat.hospital_intelligence:
+            assert "hospital_load_pred_mae" not in m                        # no prediction -> nothing to score
+
+
+def test_priority_violation_definition(ctx):
+    center = int(ctx.space.nodes[len(ctx.space.nodes) // 2])
+    dist = _nodes_by_distance(ctx, center)
+    a, b = dist[3][1], dist[6][1]
+    # a CRITICAL call waiting first, then a LOW call; one ICU unit; FIFO baseline serves the CRITICAL one first,
+    # so serving the LOW call while the CRITICAL one waits must be counted only when it really happens
+    calls = [_incident(ctx, a, CRITICAL_CASE, "CRITICAL", "T-I01", t=0.0), _incident(ctx, b, MILD_CASE, "LOW", "T-I02", t=5.0)]
+    sc = _scenario(ctx, [_unit(ctx, "U1", center, "ICU")], calls)
+    sim = Simulation(ctx, sc, BASELINE, _triages(ctx, sc)).run()
+    assert sim.priority_violations == 0
+    sim2 = Simulation(ctx, sc, BASELINE, _triages(ctx, sc))
+    sim2.incs[0].state = "WAITING"; sim2.incs[0].release_t = 0.0                     # critical waiting (released)
+    sim2.incs[1].state = "WAITING"; sim2.incs[1].release_t = 0.0
+    sim2.t = 10.0
+    sim2._count_priority_violations([(sim2.incs[1], sim2.units["U1"])])            # unit given to the LOW call
+    assert sim2.priority_violations == 1
+
+
+def test_offline_traffic_evaluation_three_way(monkeypatch, tmp_path):
+    import json
+
+    from app.evaluation import traffic_eval
+    monkeypatch.setattr(traffic_eval, "OUT", tmp_path / "traffic_prediction.json")
+    out = traffic_eval.evaluate()
+    assert out["source"] == "SIMULATION" and out["status"] in ("EVALUATED", "INSUFFICIENT DATA")
+    if out["status"] == "EVALUATED":
+        c = out["comparison"]
+        assert set(c) == {"ml", "fallback", "persistence", "best_by_accuracy"}
+        assert all(0 <= c[k]["accuracy"] <= 1 for k in ("ml", "fallback", "persistence"))
+    else:
+        assert out["comparison"] is None
+    assert json.loads((tmp_path / "traffic_prediction.json").read_text())["status"] == out["status"]

@@ -27,7 +27,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--all", action="store_true", help="run the five progressive systems BASELINE..FULL")
     ap.add_argument("--ablation", action="store_true", help="run FULL and the six FULL-minus-one ablations")
     ap.add_argument("--scenarios", type=int, default=100, help="number of scenarios (default 100)")
-    ap.add_argument("--seed", type=int, default=42, help="random seed of the scenario generator (default 42)")
+    from app.config import get_settings
+    ap.add_argument("--seed", type=int, default=get_settings().evaluation_seed,
+                    help="random seed of the scenario generator (default EVALUATION_SEED, 42)")
     ap.add_argument("--name", help="run name (default: derived from kind, seed, size and time)")
     ap.add_argument("--duration-min", type=float, default=30.0, help="call window per scenario, simulated minutes")
     ap.add_argument("--critical-target-s", type=float, default=480.0, help="response target for CRITICAL patients")

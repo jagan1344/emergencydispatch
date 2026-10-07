@@ -83,6 +83,21 @@ METRICS = {
     "manual_interventions": ("Manual interventions", "count", -1),
     "unserved_calls": ("Calls not reached", "count", -1),
     "decision_ms": ("Decision compute time", "ms", 0),
+    "priority_violations": ("Priority violations (vs simulated label)", "count", -1),
+    "route_failures": ("Route failures (no drivable route)", "count", -1),
+    "closure_waits": ("Units stopped at a closure", "count", -1),
+    "unsafe_reallocations": ("Unsafe reallocations (vs simulated label)", "count", -1),
+    "replacement_eta_s": ("Replacement unit ETA for donor (est.)", "s", -1),
+    "hospital_load_pred_mae": ("Hospital load prediction MAE (patients, SIMULATION)", "patients", -1),
+    "hospital_load_persistence_mae": ("Hospital load persistence MAE (patients, SIMULATION)", "patients", 0),
+    "hospital_wait_pred_mae_s": ("Hospital wait prediction MAE (SIMULATION)", "s", -1),
+    "hospital_wait_persistence_mae_s": ("Hospital wait persistence MAE (SIMULATION)", "s", 0),
+    "traffic_pred_accuracy": ("Traffic prediction accuracy (vs simulated state)", "%", 1),
+    "traffic_fallback_accuracy": ("Fallback rules accuracy", "%", 0),
+    "traffic_fallback_mae": ("Fallback rules MAE (levels)", "levels", 0),
+    "traffic_persistence_accuracy": ("Persistence baseline accuracy", "%", 0),
+    "traffic_pred_mae": ("Traffic prediction MAE (levels)", "levels", -1),
+    "traffic_persistence_mae": ("Persistence baseline MAE (levels)", "levels", 0),
 }
 
 SUMMARY_METRICS = ["response_time_s", "patient_wait_s", "initial_eta_s", "actual_travel_s", "reroute_saved_s",
@@ -143,6 +158,7 @@ def incident_records(sim, strategy_name: str) -> list[dict]:
             "auto_without_review": not i.reviewed and i.first_dispatch_t is not None,
             "under_triage": None if i.severity is None else SEV_RANK[i.severity] < SEV_RANK[i.spec["true_severity"]],
             "explanations": i.explanations, "completed": i.done_t is not None,
+            "ml_probabilities": tr.prediction.probabilities if tr.prediction is not None else None,
         })
     return out
 
@@ -247,4 +263,8 @@ def scenario_metrics(sim, records: list[dict]) -> dict:
         "explanations": sum(r["explanations"] for r in records),
         "traffic_predictions": sim.counters["traffic_predictions"], "route_checks": sim.counters["route_checks"],
         "reroute_evaluations": sim.counters["reroute_evaluations"], "sim_end_s": round(sim.end_t, 1),
+        **sim.traffic_prediction_quality(), **sim.hospital_prediction_quality(),
+        "priority_violations": sim.priority_violations, "route_failures": len(sim.route_failure_keys),
+        "closure_waits": sim.closure_waits, "unsafe_reallocations": sim.unsafe_reallocations,
+        "replacement_eta_s": _mean([c.get("replacement_eta_s") for c in conflicts if c["decision"] in ("REALLOCATED", "APPROVED")]),
     }
